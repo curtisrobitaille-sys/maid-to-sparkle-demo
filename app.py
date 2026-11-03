@@ -12,6 +12,7 @@ Run:  python app.py            (uses $PORT or 5000)
 
 Demo owner login:  owner / sparkle-demo
 """
+import io
 import os
 import random
 import sqlite3
@@ -34,6 +35,23 @@ from brand_images import BANNER_B64, LOGO_B64
 BANNER_BYTES = base64.b64decode(BANNER_B64)
 LOGO_BYTES = base64.b64decode(LOGO_B64)
 
+from avatar_images import ALYSSA_B64, BRITTANY_B64, KAYLA_B64
+
+# Seed cleaners' photos, keyed by cleaner name. Tiny on purpose — they
+# only ever display as small round avatars.
+SEED_AVATARS = {
+    "Alyssa R.": base64.b64decode(ALYSSA_B64),
+    "Kayla M.": base64.b64decode(KAYLA_B64),
+    "Brittany S.": base64.b64decode(BRITTANY_B64),
+}
+
+# Pillow powers the upload downscale; without it uploads are stored
+# as-is (still type-checked and size-capped — see _photo_from_upload).
+try:
+    from PIL import Image as _PILImage
+except ImportError:
+    _PILImage = None
+
 
 def _brand_image(data):
     resp = app.response_class(data, mimetype="image/jpeg")
@@ -49,6 +67,103 @@ def brand_banner():
 @app.route("/brand/logo.jpg")
 def brand_logo():
     return _brand_image(LOGO_BYTES)
+
+
+@app.route("/cleaner-photo/<int:cid>")
+def cleaner_photo(cid):
+    row = db().execute(
+        "SELECT photo, photo_mime FROM cleaners WHERE id = ?",
+        (cid,)).fetchone()
+    if row is None or not row["photo"]:
+        abort(404)
+    resp = app.response_class(
+        row["photo"], mimetype=row["photo_mime"] or "image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=300"
+    return resp
+
+
+def _initials(name):
+    parts = [p for p in (name or "").split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][0].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+
+def _cleaner_avatar(c, cls="avatar"):
+    """Round avatar markup for a cleaner row: their stored photo, or
+    their initials on a pink gradient when they have none. The ?v= is
+    the photo's byte length — a cheap cache-buster so a swapped photo
+    shows up right away instead of the browser's cached copy."""
+    if c["photo"]:
+        return (f'<img class="{cls}" src="/cleaner-photo/{c["id"]}'
+                f'?v={len(c["photo"])}" alt="{_e(c["name"])}">')
+    return (f'<span class="{cls} avatar-init">'
+            f'{_e(_initials(c["name"]))}</span>')
+
+
+# Generous on purpose: a 4K phone photo runs 3–8 MB and must be
+# accepted — it is shrunk to a tiny stored copy before it ever reaches
+# the database (see _shrink_photo). Only absurd files are turned away.
+MAX_PHOTO_BYTES = 15 * 1024 * 1024
+
+
+def _photo_mime(data):
+    """Sniff an image type from the bytes themselves, never the name."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _shrink_photo(data):
+    """Downscale a photo for storage: avatars display at ~60px, so the
+    stored copy is capped at 192px on the longest side and re-encoded
+    as JPEG quality 75 (a few KB). Transparency flattens onto the app's
+    cream background. Without Pillow the original bytes are kept."""
+    if _PILImage is None:
+        return data, _photo_mime(data)
+    try:
+        im = _PILImage.open(io.BytesIO(data))
+        im.seek(0)  # first frame, if animated
+        if im.mode in ("RGBA", "LA", "P"):
+            im = im.convert("RGBA")
+            bg = _PILImage.new("RGB", im.size, (255, 248, 250))
+            bg.paste(im, mask=im.split()[-1])
+            im = bg
+        else:
+            im = im.convert("RGB")
+        im.thumbnail((192, 192), _PILImage.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=75)
+        return buf.getvalue(), "image/jpeg"
+    except Exception:
+        return data, _photo_mime(data)
+
+
+def _photo_from_upload(fs):
+    """Validate an uploaded photo file.
+
+    Returns (data, mime, error): no file chosen is (None, None, None);
+    a bad file is (None, None, message); a good one is shrunk and
+    returned as (bytes, mime, None)."""
+    if fs is None or not fs.filename:
+        return None, None, None
+    data = fs.read(MAX_PHOTO_BYTES + 1)
+    if len(data) > MAX_PHOTO_BYTES:
+        return None, None, ("That photo is too big — please pick one "
+                            "under 15 MB.")
+    if _photo_mime(data) is None:
+        return None, None, ("That file doesn't look like a photo — "
+                            "please use a JPG, PNG, WebP or GIF.")
+    data, mime = _shrink_photo(data)
+    return data, mime, None
 
 OWNER_USER = "owner"
 OWNER_PASS = "sparkle-demo"
@@ -101,8 +216,10 @@ def init_db():
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS cleaners (
-            id   INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL UNIQUE,
+            photo      BLOB,
+            photo_mime TEXT
         );
         CREATE TABLE IF NOT EXISTS clients (
             id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,6 +271,13 @@ def init_db():
         """
     )
     conn.commit()
+    # Databases created before cleaner photos existed get the columns.
+    cleaner_cols = [r[1] for r in conn.execute("PRAGMA table_info(cleaners)")]
+    if "photo" not in cleaner_cols:
+        conn.execute("ALTER TABLE cleaners ADD COLUMN photo BLOB")
+    if "photo_mime" not in cleaner_cols:
+        conn.execute("ALTER TABLE cleaners ADD COLUMN photo_mime TEXT")
+    conn.commit()
     if conn.execute("SELECT COUNT(*) FROM cleaners").fetchone()[0] == 0:
         seed(conn)
     conn.close()
@@ -199,7 +323,10 @@ def seed(conn):
 
     cleaner_ids = {}
     for name in CLEANERS:
-        cur = conn.execute("INSERT INTO cleaners (name) VALUES (?)", (name,))
+        photo = SEED_AVATARS.get(name)
+        cur = conn.execute(
+            "INSERT INTO cleaners (name, photo, photo_mime) VALUES (?, ?, ?)",
+            (name, photo, "image/jpeg" if photo else None))
         cleaner_ids[name] = cur.lastrowid
 
     client_ids = {}
@@ -385,7 +512,7 @@ font-weight:800;transition:transform .15s ease}
 .client-detail p{margin:6px 0;color:var(--mut);line-height:1.55}
 .client-detail b{color:var(--ink)}
 .card.client-card{padding:0}
-.card.client-card summary{padding:8px 16px}
+.card.client-card summary{padding:8px 16px;flex-wrap:nowrap}
 .card.client-all{padding:0;margin-top:14px}
 .client-all>summary{list-style:none;cursor:pointer;display:flex;
 align-items:baseline;gap:4px 10px;padding:13px 18px;
@@ -405,6 +532,31 @@ font-weight:800;transition:transform .15s ease}
 font-weight:700;background:var(--blush2);color:var(--pink-dark)}
 .chip.star{background:#fff6df;color:#8a6d1a;box-shadow:inset 0 0 0 1px #eec987}
 .client-detail .client-star-line{color:var(--ink);font-weight:700}
+.client-card[open] .client-phone{display:none}
+.client-name{flex:none}
+.client-phone{flex:none}
+.client-chips-inline{display:flex;flex-wrap:wrap;gap:4px;flex:0 1 auto;
+min-width:0}
+.client-chips-inline .chip{font-size:10.5px;padding:2px 7px;line-height:1.3;
+text-align:center}
+.avatar{border-radius:50%;object-fit:cover;flex:none;background:var(--blush2)}
+.avatar-init{display:inline-flex;align-items:center;justify-content:center;
+background:linear-gradient(135deg,#f472a5,#c2236a);color:#fff;font-weight:800}
+.pick-grid{display:flex;flex-wrap:wrap;gap:16px 14px;margin-top:18px;
+max-width:580px}
+.pick-tile{display:flex;flex-direction:column;align-items:center;gap:6px;
+width:84px;text-decoration:none;color:var(--ink);text-align:center}
+.pick-tile .avatar{width:60px;height:60px;font-size:20px;
+border:2.5px solid #fff;box-shadow:0 2px 8px rgba(157,28,87,.25)}
+.pick-name{font-size:13px;font-weight:700;line-height:1.25}
+.team-row{display:flex;gap:13px;align-items:flex-start;margin-top:12px}
+.team-row .avatar{width:56px;height:56px;font-size:19px;margin-top:2px}
+.team-main{flex:1 1 auto;min-width:0}
+.team-name{font-weight:800;font-size:16.5px;color:var(--pink-deep)}
+.team-photo-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+margin-top:7px}
+.team-photo-form input[type=file]{font-size:13px;max-width:225px;min-width:0}
+input[type=file]{font:inherit;color:var(--ink)}
 .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 40px}
 h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
 h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
@@ -1463,6 +1615,7 @@ def owner_home():
            WHERE cleaner_id IS NULL AND day >= ?
              AND status NOT IN ('done', 'cancelled')""",
         (today_iso,)).fetchone()[0]
+    team_n = db().execute("SELECT COUNT(*) FROM cleaners").fetchone()[0]
     cards = "".join(booking_card(b, compact=True) for b in rows) or \
         '<div class="card"><p>No cleans booked for this day.</p></div>'
     if selected == today:
@@ -1501,6 +1654,10 @@ def owner_home():
       <span class="tile-title">👥 Client book</span>
       <span class="tile-line">Every customer in one place</span>
       <span class="tile-cue">View clients &rarr;</span></a>{unassigned_tile}
+      <a class="tile" href="/owner/cleaners">
+      <span class="tile-title">🧽 Team</span>
+      <span class="tile-line"><b>{team_n}</b> cleaners — add or update your team</span>
+      <span class="tile-cue">Meet the team &rarr;</span></a>
     </div>
     <h2>{heading}</h2>
     {back}{_board_calendar(selected, shown)}
@@ -1763,6 +1920,7 @@ def _client_categories(rows):
 
 
 def _client_card(c, expanded=False, idx=None, info=None):
+    chips_html = ""
     lines = []
     if info is not None:
         chips = [f'<span class="chip">{_e(SERVICE_NAMES[k])}</span>'
@@ -1770,8 +1928,8 @@ def _client_card(c, expanded=False, idx=None, info=None):
         if info["subscriber"]:
             chips.append('<span class="chip star">⭐ Subscriber</span>')
         if chips:
-            lines.append(
-                f'<div class="client-chips">{"".join(chips)}</div>')
+            chips_html = (f'<span class="client-chips-inline">'
+                          f'{"".join(chips)}</span>')
         if info["line"]:
             lines.append(
                 f'<p class="client-star-line">{_e(info["line"])}</p>')
@@ -1800,7 +1958,7 @@ def _client_card(c, expanded=False, idx=None, info=None):
                  f' data-cats="{_e(cats_attr)}"')
     return f"""
     <details class="card client-card"{open_attr}{attrs}>
-      <summary><span class="client-name">{_e(c['name'])}</span>
+      <summary><span class="client-name">{_e(c['name'])}</span>{chips_html}
       <span class="client-phone">{_e(c['phone'])}</span></summary>
       <div class="client-detail">{"".join(lines)}</div>
     </details>"""
@@ -1874,18 +2032,98 @@ def owner_clients():
     return page("Clients", body)
 
 
+# ---------------------------------------------------------------- team
+@app.route("/owner/cleaners", methods=["GET", "POST"])
+@owner_required
+def owner_cleaners():
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("Please type the new cleaner's name first.")
+            return redirect(url_for("owner_cleaners"))
+        data, mime, err = _photo_from_upload(request.files.get("photo"))
+        if err:
+            flash(err)
+            return redirect(url_for("owner_cleaners"))
+        try:
+            db().execute(
+                "INSERT INTO cleaners (name, photo, photo_mime) "
+                "VALUES (?, ?, ?)", (name, data, mime))
+            db().commit()
+        except sqlite3.IntegrityError:
+            flash(f"{name} is already on the team.")
+            return redirect(url_for("owner_cleaners"))
+        flash(f"{name} added to the team ✦")
+        return redirect(url_for("owner_cleaners"))
+    rows = db().execute("SELECT * FROM cleaners ORDER BY name").fetchall()
+    cards = []
+    for c in rows:
+        cards.append(f"""
+    <div class="card team-row">
+      {_cleaner_avatar(c)}
+      <div class="team-main">
+        <div class="team-name">{_e(c['name'])}</div>
+        <form class="team-photo-form" method="post"
+          enctype="multipart/form-data"
+          action="/owner/cleaners/{c['id']}/photo">
+          <input type="file" name="photo" accept="image/*"
+            aria-label="New photo for {_e(c['name'])}">
+          <button class="btn small ghost" type="submit">Change photo</button>
+        </form>
+      </div>
+    </div>""")
+    body = f"""
+    <h1>Your team</h1>
+    <p class="sub"><a href="/owner">&larr; Control room</a> · Everyone on
+    the crew. New cleaners show up in the picker and the assign lists
+    right away.</p>
+    {"".join(cards) or '<div class="card"><p>No cleaners yet — add the first one below.</p></div>'}
+    <form class="panel" method="post" enctype="multipart/form-data"
+      action="/owner/cleaners">
+      <label for="new-cleaner-name">Add a cleaner</label>
+      <input type="text" id="new-cleaner-name" name="name"
+        placeholder="e.g. Sam T." required>
+      <label for="new-cleaner-photo">Photo (optional)</label>
+      <input type="file" id="new-cleaner-photo" name="photo" accept="image/*">
+      <p style="margin-top:18px"><button class="btn" type="submit">Add cleaner</button></p>
+    </form>"""
+    return page("Your Team", body)
+
+
+@app.route("/owner/cleaners/<int:cid>/photo", methods=["POST"])
+@owner_required
+def owner_cleaner_photo(cid):
+    c = db().execute("SELECT * FROM cleaners WHERE id = ?",
+                     (cid,)).fetchone()
+    if c is None:
+        abort(404)
+    data, mime, err = _photo_from_upload(request.files.get("photo"))
+    if err:
+        flash(err)
+    elif data is None:
+        flash("Choose a photo file first, then tap Change photo.")
+    else:
+        db().execute(
+            "UPDATE cleaners SET photo = ?, photo_mime = ? WHERE id = ?",
+            (data, mime, cid))
+        db().commit()
+        flash(f"Photo updated for {c['name']} ✦")
+    return redirect(url_for("owner_cleaners"))
+
+
 # ---------------------------------------------------------------- cleaner
 @app.route("/cleaner")
 def cleaner_picker():
     rows = db().execute("SELECT * FROM cleaners ORDER BY name").fetchall()
-    links = "".join(
-        f'<a class="btn big-tap" href="/cleaner/{c["id"]}">'
-        f'I\'m {_e(c["name"])}</a>' for c in rows)
+    tiles = "".join(
+        f'<a class="pick-tile" href="/cleaner/{c["id"]}">'
+        f'{_cleaner_avatar(c)}'
+        f'<span class="pick-name">{_e(c["name"])}</span></a>' for c in rows)
     body = f"""
     <h1>Cleaner day view</h1>
     <p class="sub">Pick your name to see <b>only your jobs for today</b> —
     addresses, notes, and your on-the-way buttons.</p>
-    <div style="max-width:430px">{links}</div>"""
+    <div class="pick-grid">{tiles}</div>"""
     return page("Cleaner View", body)
 
 
