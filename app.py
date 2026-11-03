@@ -543,6 +543,58 @@ BOOK_SCROLL_JS = """
 </script>
 """
 
+# Owner pages only: booking-card forms (the corner assign picker and the
+# Confirm / Mark done / Cancel buttons) POST and redirect back, and the
+# reload used to throw the owner back to the top of the page. Save the
+# scroll position as one of those forms is submitted and restore it —
+# once, then clear it — when the page it returns to loads. The saved spot
+# is keyed to the page it belongs to (path + query) so it can never
+# restore on a different page, and the key is distinct from the calendar
+# script's (mts-book-scroll) so the two never fight on the board, which
+# carries both. Fail-silent: if storage is unavailable the submits work
+# exactly as they always did.
+OWNER_SCROLL_JS = """
+<script>
+(function () {
+  var PREFIX = "mts-owner-scroll:";
+  var here = location.pathname + location.search, y = null;
+  try {
+    y = sessionStorage.getItem(PREFIX + here);
+    if (y !== null) sessionStorage.removeItem(PREFIX + here);
+  } catch (e) {}
+  if (y !== null) {
+    var go = function () { window.scrollTo(0, parseInt(y, 10) || 0); };
+    go();
+    window.addEventListener("load", go);
+  }
+  function save(form) {
+    var dest = null;
+    if (form.classList && form.classList.contains("assign-corner")) {
+      var nxt = form.querySelector('input[name="next"]');
+      dest = (nxt && nxt.value) || here;
+    } else {
+      // The action buttons' route always redirects to the bookings list.
+      dest = "/owner/bookings";
+    }
+    try { sessionStorage.setItem(PREFIX + dest, String(window.scrollY)); }
+    catch (e) {}
+  }
+  // The corner picker submits from its select's onchange (form.submit()
+  // fires no submit event), so catch its change on the way down, before
+  // the inline handler runs.
+  document.addEventListener("change", function (ev) {
+    var t = ev.target;
+    var form = t && t.closest ? t.closest("form.assign-corner") : null;
+    if (form) save(form);
+  }, true);
+  document.addEventListener("submit", function (ev) {
+    var form = ev.target;
+    if (form && form.closest && form.closest(".jobcard")) save(form);
+  }, true);
+})();
+</script>
+"""
+
 # Booking page only: free address autocomplete via Photon (OpenStreetMap,
 # no API key), biased to HRM. Pure enhancement — the Address field stays a
 # plain free-text input if the fetch fails, times out, or finds nothing.
@@ -1285,7 +1337,7 @@ def owner_home():
     <h2>{heading}</h2>
     {back}{_board_calendar(selected, shown)}
     <div class="grid board-grid" style="margin-top:14px">{cards}</div>"""
-    body += BOOK_SCROLL_JS
+    body += BOOK_SCROLL_JS + OWNER_SCROLL_JS
     return page("Owner Control Room", body)
 
 
@@ -1336,12 +1388,14 @@ def owner_bookings():
     {len(rows)} {job_word} still need a cleaner. Pick a cleaner in the
     corner of any card to assign it.</p>
     <div class="grid">{"".join(cards) or '<div class="card"><p>Every job has a cleaner. 🎉</p></div>'}</div>"""
+        body += OWNER_SCROLL_JS
         return page("Unassigned Jobs", body)
     body = f"""
     <h1>Bookings</h1>
     <p class="sub"><a href="/owner">&larr; Control room</a> · Upcoming and
     today's bookings, newest requests first in line.</p>
     <div class="grid">{"".join(cards) or '<div class="card"><p>No upcoming bookings.</p></div>'}</div>"""
+    body += OWNER_SCROLL_JS
     return page("Bookings", body)
 
 
