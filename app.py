@@ -422,6 +422,35 @@ background:var(--pink)}
 #times{scroll-margin-top:96px}
 """
 
+# Booking page only: keep the reader's place across the calendar's page
+# reloads. Tapping a day cell or a month arrow saves the scroll position;
+# the freshly loaded page restores it (and clears it), so the calendar
+# stays exactly where it was on screen while the times below it update.
+BOOK_SCROLL_JS = """
+<script>
+(function () {
+  var KEY = "mts-book-scroll", y = null;
+  try {
+    y = sessionStorage.getItem(KEY);
+    if (y !== null) sessionStorage.removeItem(KEY);
+  } catch (e) {}
+  if (y !== null) {
+    var go = function () { window.scrollTo(0, parseInt(y, 10) || 0); };
+    go();
+    window.addEventListener("load", go);
+  }
+  document.addEventListener("click", function (ev) {
+    var a = ev.target && ev.target.closest ?
+      ev.target.closest("a.cal-cell, a.cal-nav") : null;
+    if (a) {
+      try { sessionStorage.setItem(KEY, String(window.scrollY)); }
+      catch (e) {}
+    }
+  });
+})();
+</script>
+"""
+
 
 def page(title, body, **ctx):
     flashes = "".join(
@@ -504,13 +533,13 @@ def landing():
       <h1>Your home called... it wants a <span style="color:var(--pink)">reset</span>.</h1>
       <p class="sub" style="font-size:18px"><b>✦ Now booking new clients</b>
       &nbsp;·&nbsp; Serving <b>Halifax &amp; HRM</b></p>
-      <p class="sub">Reliable, detailed cleaning — homes, Airbnbs, move-outs
-      and small businesses. Book in about a minute, or send a quick quote
-      form and we'll confirm the details with you.</p>
       <div class="cta-row">
         <a class="btn-book" href="/book">{BOLT_SVG}Book Your Clean ✨</a>
         <a class="btn rose" href="/quote">Get a Quote</a>
       </div>
+      <p class="sub">Reliable, detailed cleaning — homes, Airbnbs, move-outs
+      and small businesses. Book in about a minute, or send a quick quote
+      form and we'll confirm the details with you.</p>
       <p class="sub" style="margin-top:14px">✦ Eco-friendly products by default
       &nbsp;·&nbsp; ✦ Weekly, biweekly, monthly or one-time
       &nbsp;·&nbsp; ✦ Locally owned in Halifax</p>
@@ -758,7 +787,7 @@ def book():
                     cls += " today"
                 cells.append(
                     f'<a class="{cls}" href="/book?service={preset}'
-                    f'&day={d.isoformat()}#times">{d.day}</a>')
+                    f'&day={d.isoformat()}">{d.day}</a>')
             d += timedelta(days=1)
     dows = "".join(f'<div class="cal-dow">{n}</div>'
                    for n in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
@@ -810,6 +839,7 @@ def book():
       <p style="margin-top:20px"><button class="btn-book" type="submit">
       {BOLT_SVG}Confirm my booking</button></p>
     </form>"""
+    body += BOOK_SCROLL_JS
     return page("Book a Clean", body)
 
 
