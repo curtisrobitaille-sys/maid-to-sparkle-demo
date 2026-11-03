@@ -1185,7 +1185,7 @@ def _board_calendar(selected, shown):
     dows = "".join(f'<div class="cal-dow">{n}</div>'
                    for n in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
     return f"""
-      <div class="cal">
+      <div class="cal" style="margin:0 auto">
         <div class="cal-head">{prev_arrow}<span class="cal-title">
         {shown.strftime("%B %Y")}</span>{next_arrow}</div>
         <div class="cal-grid">{dows}{"".join(cells)}</div>
@@ -1278,7 +1278,7 @@ def owner_bookings():
         if b["day"] != current_day:
             current_day = b["day"]
             cards.append(f'<h2 style="grid-column:1/-1">{pretty_day(current_day)}</h2>')
-        cards.append(booking_card(b, controls(b)))
+        cards.append(booking_card(b, controls(b), compact=True))
     body = f"""
     <h1>Bookings</h1>
     <p class="sub"><a href="/owner">&larr; Control room</a> · Upcoming and
