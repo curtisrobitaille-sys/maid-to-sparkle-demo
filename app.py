@@ -384,6 +384,27 @@ font-weight:800;transition:transform .15s ease}
 .client-detail{padding:0 18px 16px}
 .client-detail p{margin:6px 0;color:var(--mut);line-height:1.55}
 .client-detail b{color:var(--ink)}
+.card.client-card{padding:0}
+.card.client-card summary{padding:8px 16px}
+.card.client-all{padding:0;margin-top:14px}
+.client-all>summary{list-style:none;cursor:pointer;display:flex;
+align-items:baseline;gap:4px 10px;padding:13px 18px;
+-webkit-tap-highlight-color:transparent}
+.client-all>summary::-webkit-details-marker{display:none}
+.client-all>summary::after{content:"\\25B8";margin-left:auto;color:var(--pink);
+font-weight:800;transition:transform .15s ease}
+.client-all[open]>summary::after{transform:rotate(90deg)}
+.client-all-title{font-weight:800;font-size:16.5px;color:var(--pink-deep)}
+.client-all-body{padding:2px 12px 14px}
+.client-all-body .client-card{margin-top:10px}
+.client-results{margin-top:2px}
+.client-cat{margin-top:12px}
+.client-cat label{margin:0 0 6px}
+.client-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;
+font-weight:700;background:var(--blush2);color:var(--pink-dark)}
+.chip.star{background:#fff6df;color:#8a6d1a;box-shadow:inset 0 0 0 1px #eec987}
+.client-detail .client-star-line{color:var(--ink);font-weight:700}
 .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 40px}
 h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
 h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
@@ -591,6 +612,153 @@ OWNER_SCROLL_JS = """
     var form = ev.target;
     if (form && form.closest && form.closest(".jobcard")) save(form);
   }, true);
+})();
+</script>
+"""
+
+# Client book only: the category menu + live search-as-you-type, one
+# filter state driving both. Progressive enhancement — every client card
+# is already on the page inside the "All clients" drop-down, stamped at
+# render with its alphabetical position (data-idx), its searchable
+# fields (data-name / data-phone digits / data-email) and its categories
+# (data-cats). The category <select> narrows the book first and the
+# search then looks inside the category ("All clients" looks
+# everywhere): with no query the drop-down holds just that category's
+# cards, alphabetical and closed, its summary line naming the category
+# and count; with a query, matches move into the results zone under the
+# search box, ranked exactly like the server (name starts-with, then
+# name contains / phone digits, then email contains; alphabetical
+# breaks ties), best match first and already open, while the drop-down
+# hides. Clearing the field restores the category's drop-down view. The
+# category choice is mirrored into the URL (?cat=) without a reload so
+# a copied link reopens on the same category; the server deliberately
+# ignores ?cat= — the no-JS fallback is the GET search (unfiltered),
+# exactly as before. No fetch, no library; one set of card elements is
+# re-parented and re-ordered, never cloned.
+CLIENT_SEARCH_JS = """
+<script>
+(function () {
+  var input = document.getElementById("client-q");
+  var select = document.getElementById("client-cat");
+  var all = document.getElementById("client-all");
+  var label = document.getElementById("client-all-label");
+  var body = document.getElementById("client-all-body");
+  var zone = document.getElementById("client-results");
+  if (!input || !all || !body || !zone) return;
+  var cards = Array.prototype.slice.call(
+    body.querySelectorAll(".client-card"));
+  var cat = "";
+  function digits(s) { return (s || "").replace(/\\D/g, ""); }
+  function idx(c) { return parseInt(c.getAttribute("data-idx"), 10) || 0; }
+  function detachAll() {
+    cards.forEach(function (c) {
+      if (c.parentNode) c.parentNode.removeChild(c);
+    });
+  }
+  function inCat(c) {
+    if (!cat) return true;
+    var cats = (c.getAttribute("data-cats") || "").split(" ");
+    return cats.indexOf(cat) !== -1;
+  }
+  function rank(c, q, qd) {
+    var name = c.getAttribute("data-name") || "";
+    var r = null;
+    if (name.indexOf(q) === 0) r = 0;
+    else if (name.indexOf(q) !== -1) r = 1;
+    if (qd.length >= 3 &&
+        (c.getAttribute("data-phone") || "").indexOf(qd) !== -1) {
+      r = (r === null) ? 1 : Math.min(r, 1);
+    }
+    if (r === null &&
+        (c.getAttribute("data-email") || "").indexOf(q) !== -1) r = 2;
+    return r;
+  }
+  function catLabel() {
+    if (!cat) return "All clients";
+    if (select) {
+      for (var i = 0; i < select.options.length; i++) {
+        if (select.options[i].value === cat) return select.options[i].text;
+      }
+    }
+    return cat;
+  }
+  function showDropdown() {
+    detachAll();
+    var vis = cards.filter(inCat);
+    vis.slice().sort(function (a, b) { return idx(a) - idx(b); })
+      .forEach(function (c) { c.open = false; body.appendChild(c); });
+    if (label) {
+      label.textContent = catLabel() + " · A–Z (" + vis.length + ")";
+    }
+    zone.innerHTML = "";
+    zone.hidden = true;
+    all.hidden = false;
+    all.open = false;
+  }
+  function showResults(q) {
+    var qd = digits(q), hits = [];
+    cards.forEach(function (c) {
+      if (!inCat(c)) return;
+      var r = rank(c, q, qd);
+      if (r !== null) hits.push({ r: r, c: c });
+    });
+    hits.sort(function (a, b) {
+      return (a.r - b.r) || (idx(a.c) - idx(b.c));
+    });
+    detachAll();
+    zone.innerHTML = "";
+    if (!hits.length) {
+      zone.innerHTML = '<div class="card" style="margin-top:12px">' +
+        "<p><b>No client matches that yet.</b></p></div>";
+    } else {
+      var line = document.createElement("p");
+      line.className = "sub";
+      line.style.marginTop = "12px";
+      line.textContent = hits.length + (hits.length === 1 ?
+        " client matches" : " clients match");
+      zone.appendChild(line);
+      hits.forEach(function (h, i) {
+        h.c.open = (i === 0);
+        zone.appendChild(h.c);
+      });
+    }
+    zone.hidden = false;
+    all.hidden = true;
+  }
+  function apply() {
+    var q = input.value.trim().toLowerCase();
+    if (q) showResults(q); else showDropdown();
+  }
+  var timer = null;
+  input.addEventListener("input", function () {
+    clearTimeout(timer);
+    timer = setTimeout(apply, 150);
+  });
+  if (select) {
+    select.addEventListener("change", function () {
+      cat = select.value;
+      try {
+        var url = new URL(window.location.href);
+        if (cat) url.searchParams.set("cat", cat);
+        else url.searchParams.delete("cat");
+        history.replaceState(null, "", url);
+      } catch (e) {}
+      apply();
+    });
+    try {
+      var wanted = new URL(window.location.href).searchParams.get("cat");
+      if (wanted) {
+        for (var i = 0; i < select.options.length; i++) {
+          if (select.options[i].value === wanted) {
+            cat = wanted;
+            select.value = wanted;
+            showDropdown();
+            break;
+          }
+        }
+      }
+    } catch (e) {}
+  }
 })();
 </script>
 """
@@ -1514,8 +1682,99 @@ def _client_matches(rows, q):
     return [c for _rank, c in scored]
 
 
-def _client_card(c, expanded=False):
+def _client_categories(rows):
+    """Per-client categories for the client book, computed live.
+
+    A client's categories are the distinct services across their
+    non-cancelled bookings, plus the services on quote requests matched
+    to them. Quotes carry no client_id, so they are attributed by
+    contact — email first, then phone digits — the same identity the
+    booking intake uses to keep one tidy book. A client with 2+ non-
+    cancelled bookings is a Subscriber; when 2+ of those bookings share
+    a service + weekday + start slot, that rhythm is named, otherwise
+    the card just counts the cleans — never a rhythm the bookings
+    don't show.
+    """
+    info = {c["id"]: {"services": set(), "bookings": []} for c in rows}
+    for b in db().execute(
+            "SELECT client_id, service, day, slot FROM bookings "
+            "WHERE status != 'cancelled'").fetchall():
+        entry = info.get(b["client_id"])
+        if entry is None:
+            continue
+        if b["service"] in SERVICE_NAMES:
+            entry["services"].add(b["service"])
+        entry["bookings"].append(b)
+    by_email = {}
+    by_phone = {}
+    for c in rows:
+        if c["email"]:
+            by_email.setdefault(c["email"].lower(), c["id"])
+        digits = _digits(c["phone"])
+        if len(digits) >= 7:
+            by_phone.setdefault(digits, c["id"])
+    for q in db().execute(
+            "SELECT email, phone, service FROM quotes").fetchall():
+        svc = (q["service"] or "").strip()
+        if svc not in SERVICE_NAMES:
+            continue
+        cid = None
+        if q["email"]:
+            cid = by_email.get(q["email"].lower())
+        if cid is None:
+            qd = _digits(q["phone"])
+            if len(qd) >= 7:
+                cid = by_phone.get(qd)
+        if cid is not None:
+            info[cid]["services"].add(svc)
+    svc_order = {k: i for i, (k, _n, _d) in enumerate(SERVICES)}
+    slot_order = {s: i for i, s in enumerate(SLOTS)}
+    out = {}
+    for cid, entry in info.items():
+        services = sorted(entry["services"], key=lambda k: svc_order[k])
+        bookings = entry["bookings"]
+        line = None
+        if len(bookings) >= 2:
+            groups = {}
+            for b in bookings:
+                try:
+                    weekday = date.fromisoformat(b["day"]).strftime("%A")
+                except ValueError:
+                    continue
+                key = (b["service"], weekday, b["slot"])
+                groups[key] = groups.get(key, 0) + 1
+            best = None
+            for (svc, weekday, slot), n in groups.items():
+                if n < 2:
+                    continue
+                rank = (-n, svc_order.get(svc, 99),
+                        slot_order.get(slot, 99), weekday)
+                if best is None or rank < best[0]:
+                    best = (rank, svc, weekday, slot)
+            if best is not None:
+                _r, svc, weekday, slot = best
+                line = (f"⭐ Regular — {SERVICE_NAMES[svc]} · {weekday}s "
+                        f"· {slot}")
+            else:
+                line = f"⭐ Repeat client — {len(bookings)} cleans booked"
+        out[cid] = {"services": services,
+                    "subscriber": len(bookings) >= 2, "line": line}
+    return out
+
+
+def _client_card(c, expanded=False, idx=None, info=None):
     lines = []
+    if info is not None:
+        chips = [f'<span class="chip">{_e(SERVICE_NAMES[k])}</span>'
+                 for k in info["services"]]
+        if info["subscriber"]:
+            chips.append('<span class="chip star">⭐ Subscriber</span>')
+        if chips:
+            lines.append(
+                f'<div class="client-chips">{"".join(chips)}</div>')
+        if info["line"]:
+            lines.append(
+                f'<p class="client-star-line">{_e(info["line"])}</p>')
     if c["phone"]:
         lines.append(
             f'<p>📞 <a href="tel:{_e(c["phone"])}">{_e(c["phone"])}</a></p>')
@@ -1528,8 +1787,19 @@ def _client_card(c, expanded=False):
     if c["notes"]:
         lines.append(f"<p><b>Notes:</b> {_e(c['notes'])}</p>")
     open_attr = " open" if expanded else ""
+    attrs = ""
+    if idx is not None:
+        cats = list(info["services"]) if info else []
+        if info and info["subscriber"]:
+            cats.append("subscribers")
+        cats_attr = " ".join(cats)
+        attrs = (f' data-idx="{idx}"'
+                 f' data-name="{_e((c["name"] or "").lower())}"'
+                 f' data-phone="{_digits(c["phone"])}"'
+                 f' data-email="{_e((c["email"] or "").lower())}"'
+                 f' data-cats="{_e(cats_attr)}"')
     return f"""
-    <details class="card client-card"{open_attr}>
+    <details class="card client-card"{open_attr}{attrs}>
       <summary><span class="client-name">{_e(c['name'])}</span>
       <span class="client-phone">{_e(c['phone'])}</span></summary>
       <div class="client-detail">{"".join(lines)}</div>
@@ -1540,14 +1810,18 @@ def _client_card(c, expanded=False):
 @owner_required
 def owner_clients():
     rows = db().execute("SELECT * FROM clients ORDER BY name").fetchall()
+    info = _client_categories(rows)
+    alpha = {c["id"]: i for i, c in enumerate(rows)}
     q = (request.args.get("q") or "").strip()
     result_line = ""
+    script = ""
     if q:
         shown = _client_matches(rows, q)
         if shown:
             noun = "client matches" if len(shown) == 1 else "clients match"
             cards = "".join(
-                _client_card(c, expanded=(i == 0))
+                _client_card(c, expanded=(i == 0), idx=alpha[c["id"]],
+                             info=info[c["id"]])
                 for i, c in enumerate(shown))
             result_line = f"""
     <p class="sub" style="margin-top:12px">{len(shown)} {noun}
@@ -1559,8 +1833,30 @@ def owner_clients():
       <p><a href="/owner/clients">Show all clients</a></p>
     </div>"""
     else:
-        shown = rows
-        result_line = "".join(_client_card(c) for c in shown)
+        cards = "".join(
+            _client_card(c, idx=i, info=info[c["id"]])
+            for i, c in enumerate(rows))
+        cat_counts = {}
+        for c in rows:
+            for k in info[c["id"]]["services"]:
+                cat_counts[k] = cat_counts.get(k, 0) + 1
+        cat_opts = ['<option value="">All clients</option>',
+                    '<option value="subscribers">⭐ Subscribers</option>']
+        for k, name, _d in SERVICES:
+            if cat_counts.get(k):
+                cat_opts.append(
+                    f'<option value="{k}">{_e(name)}</option>')
+        result_line = f"""
+    <div class="client-cat">
+      <label for="client-cat">Category</label>
+      <select id="client-cat">{"".join(cat_opts)}</select>
+    </div>
+    <div class="client-results" id="client-results" hidden></div>
+    <details class="card client-all" id="client-all">
+      <summary><span class="client-all-title" id="client-all-label">All clients · A&ndash;Z ({len(rows)})</span></summary>
+      <div class="client-all-body" id="client-all-body">{cards}</div>
+    </details>"""
+        script = CLIENT_SEARCH_JS
     body = f"""
     <h1>Client book</h1>
     <p class="sub"><a href="/owner">&larr; Control room</a> · Everyone who has
@@ -1573,6 +1869,8 @@ def owner_clients():
         <button class="btn small" type="submit">Search</button>
       </div>
     </form>{result_line}"""
+    if script:
+        body += script
     return page("Clients", body)
 
 
