@@ -512,6 +512,11 @@ color:var(--pink-dark)}
 .client-search-row{display:flex;gap:8px}
 .client-search-row input{flex:1 1 auto;min-width:0}
 .client-search-row .btn{flex:0 0 auto}
+.code-field{position:relative;flex:1 1 auto;min-width:0}
+.code-field .code-prefix{position:absolute;left:13px;top:50%;
+transform:translateY(-50%);color:var(--mut);font-weight:700;font-size:16px;
+letter-spacing:.4px;pointer-events:none}
+.client-search-row .code-field input{padding-left:64px}
 .client-card{margin-top:12px;padding:0}
 .client-card summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;
 align-items:baseline;gap:4px 10px;padding:15px 18px;
@@ -553,6 +558,10 @@ font-weight:700;background:var(--blush2);color:var(--pink-dark)}
 min-width:0}
 .client-chips-inline .chip{font-size:10.5px;padding:2px 7px;line-height:1.3;
 text-align:center}
+.client-booking .client-ref{font-weight:700;color:var(--pink-dark);
+white-space:nowrap}
+.client-booking.code-hit{background:var(--blush2);border-radius:8px;
+padding:2px 8px;margin:6px -8px}
 .avatar{border-radius:50%;object-fit:cover;flex:none;background:var(--blush2)}
 .avatar-init{display:inline-flex;align-items:center;justify-content:center;
 background:linear-gradient(135deg,#f472a5,#c2236a);color:#fff;font-weight:800}
@@ -581,21 +590,26 @@ padding:22px;margin-top:18px;box-shadow:0 2px 12px rgba(232,67,147,.10)}
 .hero h1{margin-top:0}
 /* Home only: the banner leaves the hero card and becomes a fixed
    full-width backdrop pinned under a fixed header. The page content
-   (solid --bg, see body.home>.wrap) scrolls up over it, and the
-   image's bottom edge fades into --bg via the ::after gradient, so
-   where the image ends and the text begins there is no hard line.
-   Other pages keep the normal in-flow header and no backdrop. */
-body.home{--hdr-h:74px;--band-h:clamp(190px,62vw,360px);
+   scrolls up over it; the image's bottom edge fades into --bg via
+   the ::after gradient, and the content sheet's own top edge is a
+   gradient too (transparent -> --bg over its first 72px), so no
+   hard horizontal line ever crosses the banner, at rest or while
+   scrolling. Other pages keep the normal in-flow header and no
+   backdrop. */
+body.home{--hdr-h:74px;--band-h:clamp(160px,50vw,300px);
 padding-top:var(--hdr-h)}
 body.home header.site{position:fixed;top:0;left:0;right:0;z-index:60}
 .hero-backdrop{position:fixed;top:var(--hdr-h);left:0;right:0;
 height:var(--band-h);z-index:0;
-background:url(/brand/banner.jpg) center 18%/cover no-repeat}
+background:url(/brand/banner.jpg) center 45%/cover no-repeat}
+@media(min-width:601px){.hero-backdrop{background-position:center 30%}}
 .hero-backdrop::after{content:"";position:absolute;inset:0;
-background:linear-gradient(to bottom,rgba(255,248,250,0) 46%,
-rgba(255,248,250,.55) 74%,var(--bg) 100%)}
-body.home>.wrap{position:relative;z-index:1;background:var(--bg);
-margin-top:calc(var(--band-h) - 96px)}
+background:linear-gradient(to bottom,rgba(255,248,250,0) 55%,
+rgba(255,248,250,.45) 85%,var(--bg) 100%)}
+body.home>.wrap{position:relative;z-index:1;
+background:linear-gradient(to bottom,rgba(255,248,250,0),
+var(--bg) 72px);
+margin-top:calc(var(--band-h) - 64px)}
 body.home footer.site{position:relative;z-index:1;background:var(--bg)}
 .signin-logo{display:block;width:112px;height:112px;object-fit:cover;
 border-radius:22px;margin:0 auto 6px}
@@ -872,11 +886,27 @@ CLIENT_SEARCH_JS = """
     var cats = (c.getAttribute("data-cats") || "").split(" ");
     return cats.indexOf(cat) !== -1;
   }
-  function rank(c, q, qd) {
+  function codeDigits(q) {
+    var s = (q || "").trim();
+    if (s.indexOf("mts-") === 0) s = s.slice(4);
+    else if (s.indexOf("mts") === 0) s = s.slice(3);
+    var d = digits(s);
+    return d.length >= 3 ? d : "";
+  }
+  function rank(c, q, qd, qc) {
     var name = c.getAttribute("data-name") || "";
     var r = null;
-    if (name.indexOf(q) === 0) r = 0;
-    else if (name.indexOf(q) !== -1) r = 1;
+    if (qc) {
+      var codes = (c.getAttribute("data-codes") || "").split(" ");
+      if (codes.indexOf(qc) !== -1) r = -2;
+      else if (codes.some(function (x) {
+        return x && x.indexOf(qc) !== -1;
+      })) r = -1;
+    }
+    if (name.indexOf(q) === 0) r = (r === null) ? 0 : Math.min(r, 0);
+    else if (name.indexOf(q) !== -1) {
+      r = (r === null) ? 1 : Math.min(r, 1);
+    }
     if (qd.length >= 3 &&
         (c.getAttribute("data-phone") || "").indexOf(qd) !== -1) {
       r = (r === null) ? 1 : Math.min(r, 1);
@@ -884,6 +914,16 @@ CLIENT_SEARCH_JS = """
     if (r === null &&
         (c.getAttribute("data-email") || "").indexOf(q) !== -1) r = 2;
     return r;
+  }
+  function markHits(qc) {
+    cards.forEach(function (c) {
+      var lines = c.querySelectorAll(".client-booking");
+      Array.prototype.forEach.call(lines, function (p) {
+        var on = !!qc &&
+          (p.getAttribute("data-refd") || "").indexOf(qc) !== -1;
+        p.classList.toggle("code-hit", on);
+      });
+    });
   }
   function catLabel() {
     if (!cat) return "All clients";
@@ -895,6 +935,7 @@ CLIENT_SEARCH_JS = """
     return cat;
   }
   function showDropdown() {
+    markHits("");
     detachAll();
     var vis = cards.filter(inCat);
     vis.slice().sort(function (a, b) { return idx(a) - idx(b); })
@@ -908,12 +949,13 @@ CLIENT_SEARCH_JS = """
     all.open = false;
   }
   function showResults(q) {
-    var qd = digits(q), hits = [];
+    var qd = digits(q), qc = codeDigits(q), hits = [];
     cards.forEach(function (c) {
       if (!inCat(c)) return;
-      var r = rank(c, q, qd);
+      var r = rank(c, q, qd, qc);
       if (r !== null) hits.push({ r: r, c: c });
     });
+    markHits(qc);
     hits.sort(function (a, b) {
       return (a.r - b.r) || (idx(a.c) - idx(b.c));
     });
@@ -1792,12 +1834,20 @@ def owner_home():
 def owner_bookings():
     today_iso = date.today().isoformat()
     unassigned_only = request.args.get("unassigned") == "1"
+    code_q = (request.args.get("code") or "").strip()
     if unassigned_only:
         rows = db().execute(
             """SELECT * FROM bookings
                WHERE day >= ? AND cleaner_id IS NULL
                  AND status NOT IN ('done', 'cancelled')
                ORDER BY day, slot""", (today_iso,)).fetchall()
+    elif code_q:
+        # A customer quoting their confirmation code may mean any
+        # booking, not just an upcoming one — search the whole book.
+        qc = _code_digits(code_q)
+        rows = [b for b in db().execute(
+            "SELECT * FROM bookings ORDER BY day, slot").fetchall()
+            if qc and qc in _digits(b["ref"])]
     else:
         rows = db().execute(
             """SELECT * FROM bookings WHERE day >= ?
@@ -1836,11 +1886,39 @@ def owner_bookings():
     <div class="grid">{"".join(cards) or '<div class="card"><p>Every job has a cleaner. 🎉</p></div>'}</div>"""
         body += OWNER_SCROLL_JS
         return page("Unassigned Jobs", body)
+    result_line = ""
+    if code_q:
+        if rows:
+            noun = "booking matches" if len(rows) == 1 else "bookings match"
+            result_line = f"""
+    <p class="sub" style="margin-top:12px">{len(rows)} {noun}
+    &ldquo;{_e(code_q)}&rdquo; · <a href="/owner/bookings">Clear &mdash;
+    show all bookings</a></p>"""
+            grid_inner = "".join(cards)
+        else:
+            grid_inner = """<div class="card"><p><b>No booking with that
+    code</b> &mdash; check the number and try again.</p>
+    <p><a href="/owner/bookings">Show all bookings</a></p></div>"""
+    else:
+        grid_inner = ("".join(cards) or
+                      '<div class="card"><p>No upcoming bookings.</p></div>')
     body = f"""
     <h1>Bookings</h1>
     <p class="sub"><a href="/owner">&larr; Control room</a> · Upcoming and
     today's bookings, newest requests first in line.</p>
-    <div class="grid">{"".join(cards) or '<div class="card"><p>No upcoming bookings.</p></div>'}</div>"""
+    <form class="client-search" method="get" action="/owner/bookings">
+      <label for="booking-code">Find a booking — confirmation code</label>
+      <div class="client-search-row">
+        <div class="code-field">
+          <span class="code-prefix" aria-hidden="true">MTS –</span>
+          <input type="text" id="booking-code" name="code"
+            inputmode="numeric" autocomplete="off"
+            value="{_e(_digits(code_q))}" placeholder="50605">
+        </div>
+        <button class="btn small" type="submit">Find</button>
+      </div>
+    </form>{result_line}
+    <div class="grid">{grid_inner}</div>"""
     body += OWNER_SCROLL_JS
     return page("Bookings", body)
 
@@ -1936,24 +2014,72 @@ def _digits(s):
     return "".join(ch for ch in (s or "") if ch.isdigit())
 
 
+def _code_digits(q):
+    """Confirmation-code digits in a query, or "" when it isn't one.
+
+    "MTS-50605", "mts50605" and "50605" all reduce to "50605"; what's
+    left needs 3+ digits before it counts as a code lookup — "506"
+    already finds MTS-50605, while a stray digit or two stays a
+    name/phone search.
+    """
+    s = (q or "").strip().upper()
+    if s.startswith("MTS-"):
+        s = s[4:]
+    elif s.startswith("MTS"):
+        s = s[3:]
+    d = _digits(s)
+    return d if len(d) >= 3 else ""
+
+
+def _client_codes():
+    """client_id -> [booking ref digits, ...] across every booking,
+    any status — a customer can quote the code off an old clean."""
+    codes = {}
+    for b in db().execute("SELECT client_id, ref FROM bookings").fetchall():
+        if b["client_id"] is not None:
+            codes.setdefault(b["client_id"], []).append(_digits(b["ref"]))
+    return codes
+
+
+def _client_history(rows):
+    """client_id -> [booking rows] in visit order, for the booking
+    lines on each client card — every booking, whatever its status."""
+    hist = {c["id"]: [] for c in rows}
+    for b in db().execute(
+            "SELECT client_id, ref, service, day, slot, status "
+            "FROM bookings ORDER BY day, slot").fetchall():
+        if b["client_id"] in hist:
+            hist[b["client_id"]].append(b)
+    return hist
+
+
 def _client_matches(rows, q):
     """Rank client-book matches for a search query.
 
-    Name matches rank first (starts-with beats contains), then phone
-    matches on digits only (so 0107, 5550107 and 902-555-0107 all find
-    the same client), then email contains. Rows arrive alphabetical,
-    which breaks ties.
+    Confirmation-code matches rank above everything (an exact code
+    beats a partial one), then name matches (starts-with beats
+    contains), then phone matches on digits only (so 0107, 5550107
+    and 902-555-0107 all find the same client), then email contains.
+    Rows arrive alphabetical, which breaks ties.
     """
     ql = q.lower()
     qd = _digits(q)
+    qc = _code_digits(q)
+    codes = _client_codes() if qc else {}
     scored = []
     for c in rows:
         name = (c["name"] or "").lower()
         rank = None
+        if qc:
+            refs = codes.get(c["id"], [])
+            if qc in refs:
+                rank = -2
+            elif any(qc in r for r in refs):
+                rank = -1
         if name.startswith(ql):
-            rank = 0
+            rank = 0 if rank is None else min(rank, 0)
         elif ql in name:
-            rank = 1
+            rank = 1 if rank is None else min(rank, 1)
         if len(qd) >= 3 and qd in _digits(c["phone"]):
             rank = 1 if rank is None else min(rank, 1)
         if rank is None and ql in (c["email"] or "").lower():
@@ -2044,7 +2170,8 @@ def _client_categories(rows):
     return out
 
 
-def _client_card(c, expanded=False, idx=None, info=None):
+def _client_card(c, expanded=False, idx=None, info=None, history=None,
+                 hl=""):
     chips_html = ""
     lines = []
     if info is not None:
@@ -2069,6 +2196,16 @@ def _client_card(c, expanded=False, idx=None, info=None):
         lines.append(f"<p><b>Address:</b> {_e(c['address'])}</p>")
     if c["notes"]:
         lines.append(f"<p><b>Notes:</b> {_e(c['notes'])}</p>")
+    for b in history or []:
+        refd = _digits(b["ref"])
+        hit = " code-hit" if hl and hl in refd else ""
+        svc = SERVICE_NAMES.get(b["service"], b["service"])
+        tail = " · Cancelled" if b["status"] == "cancelled" else ""
+        lines.append(
+            f'<p class="client-booking{hit}" data-refd="{refd}">'
+            f'{_e(svc)} · {_e(pretty_day(b["day"]))} · {_e(b["slot"])}'
+            f' · <span class="client-ref">{_e(b["ref"])}</span>'
+            f'{tail}</p>')
     open_attr = " open" if expanded else ""
     attrs = ""
     if idx is not None:
@@ -2076,11 +2213,13 @@ def _client_card(c, expanded=False, idx=None, info=None):
         if info and info["subscriber"]:
             cats.append("subscribers")
         cats_attr = " ".join(cats)
+        codes_attr = " ".join(_digits(b["ref"]) for b in (history or []))
         attrs = (f' data-idx="{idx}"'
                  f' data-name="{_e((c["name"] or "").lower())}"'
                  f' data-phone="{_digits(c["phone"])}"'
                  f' data-email="{_e((c["email"] or "").lower())}"'
-                 f' data-cats="{_e(cats_attr)}"')
+                 f' data-cats="{_e(cats_attr)}"'
+                 f' data-codes="{codes_attr}"')
     return f"""
     <details class="card client-card"{open_attr}{attrs}>
       <summary><span class="client-name">{_e(c['name'])}</span>{chips_html}
@@ -2094,6 +2233,7 @@ def _client_card(c, expanded=False, idx=None, info=None):
 def owner_clients():
     rows = db().execute("SELECT * FROM clients ORDER BY name").fetchall()
     info = _client_categories(rows)
+    hist = _client_history(rows)
     alpha = {c["id"]: i for i, c in enumerate(rows)}
     q = (request.args.get("q") or "").strip()
     result_line = ""
@@ -2104,7 +2244,8 @@ def owner_clients():
             noun = "client matches" if len(shown) == 1 else "clients match"
             cards = "".join(
                 _client_card(c, expanded=(i == 0), idx=alpha[c["id"]],
-                             info=info[c["id"]])
+                             info=info[c["id"]], history=hist[c["id"]],
+                             hl=_code_digits(q))
                 for i, c in enumerate(shown))
             result_line = f"""
     <p class="sub" style="margin-top:12px">{len(shown)} {noun}
@@ -2117,7 +2258,8 @@ def owner_clients():
     </div>"""
     else:
         cards = "".join(
-            _client_card(c, idx=i, info=info[c["id"]])
+            _client_card(c, idx=i, info=info[c["id"]],
+                         history=hist[c["id"]])
             for i, c in enumerate(rows))
         cat_counts = {}
         for c in rows:
@@ -2145,10 +2287,10 @@ def owner_clients():
     <p class="sub"><a href="/owner">&larr; Control room</a> · Everyone who has
     booked or asked for a quote, in one place.</p>
     <form class="client-search" method="get" action="/owner/clients">
-      <label for="client-q">Search by name or phone number</label>
+      <label for="client-q">Search by name, phone or confirmation code</label>
       <div class="client-search-row">
         <input type="search" id="client-q" name="q" value="{_e(q)}"
-          placeholder="e.g. Denise or 0107">
+          placeholder="e.g. Denise, 0107 or MTS-50605">
         <button class="btn small" type="submit">Search</button>
       </div>
     </form>{result_line}"""
