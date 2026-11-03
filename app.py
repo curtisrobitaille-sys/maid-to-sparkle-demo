@@ -595,7 +595,13 @@ padding:22px;margin-top:18px;box-shadow:0 2px 12px rgba(232,67,147,.10)}
    gradient too (transparent -> --bg over its first 72px), so no
    hard horizontal line ever crosses the banner, at rest or while
    scrolling. Other pages keep the normal in-flow header and no
-   backdrop. */
+   backdrop. The wrap's 113px overlap is measured, not eyeballed:
+   it puts the hero card's top edge exactly on the underline swoosh
+   beneath "Sparkle" in the artwork (rendered swoosh centroid
+   197.6px at 393px wide; card edge lands within ~1px of it).
+   Wide screens crop the swoosh out of the band entirely, so
+   their overlap is a gentler 88px: same raised-card idea, with
+   as much of the title kept in view as the wide crop allows. */
 body.home{--hdr-h:74px;--band-h:clamp(160px,50vw,300px);
 padding-top:var(--hdr-h)}
 body.home header.site{position:fixed;top:0;left:0;right:0;z-index:60}
@@ -609,7 +615,8 @@ rgba(255,248,250,.45) 85%,var(--bg) 100%)}
 body.home>.wrap{position:relative;z-index:1;
 background:linear-gradient(to bottom,rgba(255,248,250,0),
 var(--bg) 72px);
-margin-top:calc(var(--band-h) - 64px)}
+margin-top:calc(var(--band-h) - 113px)}
+@media(min-width:601px){body.home>.wrap{margin-top:calc(var(--band-h) - 88px)}}
 body.home footer.site{position:relative;z-index:1;background:var(--bg)}
 .signin-logo{display:block;width:112px;height:112px;object-fit:cover;
 border-radius:22px;margin:0 auto 6px}
