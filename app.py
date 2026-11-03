@@ -30,10 +30,13 @@ app.secret_key = "maid-demo-only-not-a-real-secret"
 
 import base64
 
-from brand_images import BANNER_B64, LOGO_B64
+from brand_images import (BANNER_B64, EMPLOYEE_LOGIN_B64, LOGO_B64,
+                          MANAGER_LOGIN_B64)
 
 BANNER_BYTES = base64.b64decode(BANNER_B64)
 LOGO_BYTES = base64.b64decode(LOGO_B64)
+EMPLOYEE_LOGIN_BYTES = base64.b64decode(EMPLOYEE_LOGIN_B64)
+MANAGER_LOGIN_BYTES = base64.b64decode(MANAGER_LOGIN_B64)
 
 from avatar_images import ALYSSA_B64, BRITTANY_B64, KAYLA_B64
 
@@ -67,6 +70,16 @@ def brand_banner():
 @app.route("/brand/logo.jpg")
 def brand_logo():
     return _brand_image(LOGO_BYTES)
+
+
+@app.route("/brand/employee-login.jpg")
+def brand_employee_login():
+    return _brand_image(EMPLOYEE_LOGIN_BYTES)
+
+
+@app.route("/brand/manager-login.jpg")
+def brand_manager_login():
+    return _brand_image(MANAGER_LOGIN_BYTES)
 
 
 @app.route("/cleaner-photo/<int:cid>")
@@ -440,6 +453,9 @@ align-items:center;gap:12px;padding:0 18px}
 .brandmark{width:54px;height:54px;border-radius:14px;object-fit:cover;
 background:#fff;padding:2px;box-shadow:0 1px 6px rgba(157,28,87,.35);
 flex:0 0 auto}
+.brand-home{display:flex;align-items:center;gap:12px;flex:1 1 auto;
+min-width:0;text-decoration:none;color:inherit}
+@media (max-width:380px){.brand-home{gap:10px}}
 .brand-stack{display:flex;flex-direction:column;justify-content:center;
 line-height:1.2;min-width:0;flex:1 1 auto}
 .logo{font-size:26px;font-weight:800;letter-spacing:.3px;color:#fff;
@@ -618,6 +634,9 @@ var(--bg) 72px);
 margin-top:calc(var(--band-h) - 113px)}
 @media(min-width:601px){body.home>.wrap{margin-top:calc(var(--band-h) - 88px)}}
 body.home footer.site{position:relative;z-index:1;background:var(--bg)}
+.login-badge{display:block;width:250px;max-width:100%;height:auto;
+margin:0 auto 6px}
+.badge-link{display:block}
 .signin-logo{display:block;width:112px;height:112px;object-fit:cover;
 border-radius:22px;margin:0 auto 6px}
 .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
@@ -709,6 +728,7 @@ border-radius:10px;padding:12px 16px;margin:14px 0;font-weight:600}
 .jobcard .when{font-size:20px;font-weight:800}
 footer.site{border-top:1px solid var(--line);color:var(--mut);font-size:12.5px;
 text-align:center;padding:18px 12px 30px;line-height:1.6}
+footer.site a{color:inherit}
 .stamps{color:var(--mut);font-size:13px;margin:6px 0 0}
 .kv{font-size:14px;line-height:1.7}
 .kv b{color:var(--ink)}
@@ -1146,6 +1166,7 @@ def page(title, body, **ctx):
 <a href="/quote"{_cur("/quote")}>Get a Quote</a>
 <a href="/owner"{_cur("/owner", "/login")}>Owner</a>
 <a href="/cleaner"{_cur("/cleaner")}>Cleaner View</a>
+<a href="/login">Staff login</a>
 </nav></details>"""
     html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
@@ -1153,15 +1174,18 @@ def page(title, body, **ctx):
 <title>{_e(title)} — Maid To Sparkle</title><style>{CSS}</style></head>
 <body{body_cls}>
 <header class="site"><div class="wrap">
+<a class="brand-home" href="/" aria-label="Maid To Sparkle — home">
 <img class="brandmark" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
 <div class="brand-stack">
-<a class="logo" href="/">Maid <span class="spark">✦</span> To Sparkle</a>
+<span class="logo">Maid <span class="spark">✦</span> To Sparkle</span>
 <span class="tagline">Halifax &amp; HRM cleaning</span>
 </div>
+</a>
 {nav}</div></header>
 {backdrop}<div class="wrap">{flashes}{body}</div>
 <footer class="site">Maid To Sparkle — demonstration website.<br>
-Demo built by <b>HalifaxFX</b> · Sample data only — no real bookings are taken here.</footer>
+Demo built by <b>HalifaxFX</b> · Sample data only — no real bookings are taken here.<br>
+<a href="/login">Staff login</a></footer>
 </body></html>"""
     return render_template_string(html, **ctx)
 
@@ -1583,19 +1607,33 @@ def login():
             session["owner"] = True
             return redirect(url_for("owner_home"))
         flash("That login didn't match — try the demo login below.")
+    rows = db().execute("SELECT * FROM cleaners ORDER BY name").fetchall()
+    tiles = "".join(
+        f'<a class="pick-tile" href="/cleaner/{c["id"]}">'
+        f'{_cleaner_avatar(c)}'
+        f'<span class="pick-name">{_e(c["name"])}</span></a>' for c in rows)
+    if not tiles:
+        tiles = '<p class="sub">No team members yet.</p>'
     body = f"""
-    <h1>Owner sign-in</h1>
-    <p class="sub">The control room: today's board, bookings, quote
-    requests and the client book.</p>
+    <h1>Staff login</h1>
+    <p class="sub">Owner and team sign in here.</p>
     <form class="panel" method="post" style="max-width:430px">
-      <img class="signin-logo" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
+      <img class="login-badge" src="/brand/manager-login.jpg" alt="Manager login">
       <label>Username</label><input type="text" name="user" required>
       <label>Password</label><input type="password" name="password" required>
       <p style="margin-top:18px"><button class="btn" type="submit">Sign in</button></p>
       <p class="kv" style="background:var(--blush);border-radius:9px;padding:10px 14px">
       <b>Demo login</b> — user: <b>{OWNER_USER}</b> · password: <b>{OWNER_PASS}</b></p>
-    </form>"""
-    return page("Owner Sign-In", body)
+    </form>
+    <div class="card" style="max-width:430px;margin-top:22px">
+      <a class="badge-link" href="/cleaner"><img class="login-badge"
+        src="/brand/employee-login.jpg" alt="Employee login"></a>
+      <p class="sub" style="margin-top:0">Tap your picture to see
+      <b>only your jobs for today</b> — addresses, notes, and your
+      on-the-way buttons.</p>
+      <div class="pick-grid">{tiles}</div>
+    </div>"""
+    return page("Staff Login", body)
 
 
 @app.route("/logout")
