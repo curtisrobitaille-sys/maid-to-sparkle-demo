@@ -535,6 +535,11 @@ def landing():
 QUOTE_SERVICES = [(k, name) for k, name, _d in SERVICES]
 EXTRAS = ["den/office", "finished basement", "laundry room",
           "inside appliances", "inside windows"]
+# Service areas offered as a drop-down on the quote and booking forms.
+AREAS = ["Bedford", "Sackville", "Beaver Bank", "Halifax", "Dartmouth",
+         "Eastern Passage", "Fall River", "Waverley"]
+AREA_OPTS = ('<option value="">Choose your area</option>' + "".join(
+    f"<option>{a}</option>" for a in AREAS))
 
 
 @app.route("/quote", methods=["GET", "POST"])
@@ -582,8 +587,8 @@ def quote():
       </div>
       <div class="two">
         <div><label>Email</label><input type="email" name="email"></div>
-        <div><label>Area (e.g. Bedford, Dartmouth)</label>
-        <input type="text" name="area"></div>
+        <div><label>Area</label>
+        <select name="area">{AREA_OPTS}</select></div>
       </div>
       <div class="two">
         <div><label>Property type</label><select name="prop_type">
@@ -795,8 +800,8 @@ def book():
       </div>
       <div class="two">
         <div><label>Email</label><input type="email" name="email"></div>
-        <div><label>Area (e.g. Fairview, Bedford)</label>
-        <input type="text" name="area"></div>
+        <div><label>Area</label>
+        <select name="area">{AREA_OPTS}</select></div>
       </div>
       <label>Address</label>
       <input type="text" name="address" placeholder="Street address or area landmark">
