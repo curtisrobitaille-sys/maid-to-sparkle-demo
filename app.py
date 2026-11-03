@@ -16,7 +16,7 @@ import io
 import os
 import random
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
 
 from flask import (Flask, abort, flash, g, get_flashed_messages, redirect,
@@ -186,6 +186,10 @@ SERVICE_NAMES = {k: v for k, v, _d in SERVICES}
 
 SLOTS = ["8:00 AM", "10:00 AM", "12:30 PM", "2:30 PM", "4:30 PM"]
 
+# A day with this many cleans is FULL — the owner board's calendar rings
+# the day cell with dots instead of stacking them under the number.
+FULL_DAY = 9
+
 STATUS_LABELS = {
     "requested": "New request",
     "confirmed": "Confirmed",
@@ -245,7 +249,10 @@ def init_db():
             cleaner_id INTEGER REFERENCES cleaners(id),
             status     TEXT NOT NULL DEFAULT 'requested',
             notes      TEXT DEFAULT '',
-            created_at TEXT DEFAULT ''
+            created_at TEXT DEFAULT '',
+            on_the_way_at TEXT,
+            arrived_at    TEXT,
+            done_at       TEXT
         );
         CREATE TABLE IF NOT EXISTS quotes (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,6 +284,13 @@ def init_db():
         conn.execute("ALTER TABLE cleaners ADD COLUMN photo BLOB")
     if "photo_mime" not in cleaner_cols:
         conn.execute("ALTER TABLE cleaners ADD COLUMN photo_mime TEXT")
+    conn.commit()
+    # Databases created before status timestamps existed get the columns
+    # (existing rows keep NULL stamps — no invented history).
+    booking_cols = [r[1] for r in conn.execute("PRAGMA table_info(bookings)")]
+    for col in ("on_the_way_at", "arrived_at", "done_at"):
+        if col not in booking_cols:
+            conn.execute(f"ALTER TABLE bookings ADD COLUMN {col} TEXT")
     conn.commit()
     if conn.execute("SELECT COUNT(*) FROM cleaners").fetchone()[0] == 0:
         seed(conn)
@@ -561,6 +575,7 @@ input[type=file]{font:inherit;color:var(--ink)}
 h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
 h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
 .sub{color:var(--mut);font-size:16px;line-height:1.5}
+.sub.backline{height:26px;line-height:26px;margin:0 0 8px;text-align:center}
 .hero{background:var(--card);border:1px solid var(--line);border-radius:16px;
 padding:22px;margin-top:18px;box-shadow:0 2px 12px rgba(232,67,147,.10)}
 .hero h1{margin-top:0}
@@ -656,6 +671,7 @@ border-radius:10px;padding:12px 16px;margin:14px 0;font-weight:600}
 .jobcard .when{font-size:20px;font-weight:800}
 footer.site{border-top:1px solid var(--line);color:var(--mut);font-size:12.5px;
 text-align:center;padding:18px 12px 30px;line-height:1.6}
+.stamps{color:var(--mut);font-size:13px;margin:6px 0 0}
 .kv{font-size:14px;line-height:1.7}
 .kv b{color:var(--ink)}
 .big-tap{display:block;text-align:center;padding:16px;font-size:18px;margin-top:10px}
@@ -684,6 +700,33 @@ a.cal-cell:hover{border-color:var(--pink)}
 transform:translateX(-50%);width:5px;height:5px;border-radius:50%;
 background:var(--pink)}
 .cal-cell.sel.today::after{background:#fff}
+/* Owner board only: booking-count dots. One small black dot per clean in
+   a row under the day number (at a full day — FULL_DAY cleans — the dots
+   ring the inside edge of the cell instead). The count dots take over the
+   under-number spot, so today's pink marker dot steps aside on board days
+   that carry count dots. On a filled cell (the selected day — and today
+   keeps its pink fill above all) the dots turn white: the cell's own
+   styling always wins, the dots just adapt. /book is untouched. */
+.board-cal .cal-cell.today.has-dots::after{display:none}
+.board-cal .cal-cell.has-dots:not(.full){padding-bottom:11px}
+.board-cal .cdots{position:absolute;left:50%;transform:translateX(-50%);
+bottom:3px;display:flex;flex-wrap:wrap;justify-content:center;gap:2px;
+width:40px;pointer-events:none}
+.board-cal .cdot{display:block;width:5px;height:5px;border-radius:50%;
+background:#111;flex:none}
+.board-cal .cal-cell.sel .cdot{background:#fff}
+.board-cal .cdots.ring{position:absolute;inset:0;
+transform:none;width:auto;display:block}
+.board-cal .cdots.ring .cdot{position:absolute}
+.board-cal .cdots.ring .cdot:nth-child(1){top:3px;left:3px}
+.board-cal .cdots.ring .cdot:nth-child(2){top:3px;left:50%;margin-left:-3px}
+.board-cal .cdots.ring .cdot:nth-child(3){top:3px;right:3px}
+.board-cal .cdots.ring .cdot:nth-child(4){right:3px;top:33%}
+.board-cal .cdots.ring .cdot:nth-child(5){right:3px;top:66%}
+.board-cal .cdots.ring .cdot:nth-child(6){bottom:3px;right:3px}
+.board-cal .cdots.ring .cdot:nth-child(7){bottom:3px;left:50%;margin-left:-3px}
+.board-cal .cdots.ring .cdot:nth-child(8){bottom:3px;left:3px}
+.board-cal .cdots.ring .cdot:nth-child(9){left:3px;top:50%;margin-top:-3px}
 #times{scroll-margin-top:96px}
 """
 
@@ -1492,6 +1535,41 @@ def logout():
     return redirect(url_for("landing"))
 
 
+# Milestone stamps: the moment a booking entered each working status.
+# Whoever tapped (cleaner or owner), the transition is what gets recorded.
+STAMP_COLUMNS = {"on_the_way": "on_the_way_at", "arrived": "arrived_at",
+                 "done": "done_at"}
+
+
+def _stamp_now():
+    """Local wall-clock moment for a milestone — the same clock the
+    board's day logic uses, so stamped times read as Halifax time."""
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _fmt_stamp(raw):
+    """'2026-11-03T09:42:07' → '9:42 AM' (no leading zero on the hour)."""
+    try:
+        t = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return ""
+    hour = t.strftime("%I").lstrip("0") or "0"
+    return f"{hour}:{t.strftime('%M %p')}"
+
+
+def stamps_line(b):
+    """Compact muted line of the milestones reached so far, in order —
+    empty string when none are stamped (nothing invented for old rows)."""
+    parts = []
+    for status in ("on_the_way", "arrived", "done"):
+        raw = b[STAMP_COLUMNS[status]]
+        if raw:
+            parts.append(f"{STATUS_LABELS[status]} {_fmt_stamp(raw)}")
+    if not parts:
+        return ""
+    return f'<p class="stamps">{" · ".join(parts)}</p>'
+
+
 def booking_card(b, controls="", compact=False):
     cleaner_name = ""
     if b["cleaner_id"]:
@@ -1536,7 +1614,7 @@ def booking_card(b, controls="", compact=False):
       <p class="client-line"><b>{_e(b['name'])}</b> · {_e(b['area'] or b['address'])}</p>
       <p>{status_pill(b['status'])}{cleaner}
       <span class="pill grey">{_e(b['ref'])}</span></p>
-      {notes}{controls}
+      {stamps_line(b)}{notes}{controls}
     </div>"""
 
 
@@ -1559,25 +1637,48 @@ def _board_calendar(selected, shown):
                   f'&month={next_m.strftime("%Y-%m")}">›</a>')
     month_last = shift(shown, 1) - timedelta(days=1)
     # Sunday-start grid, padded with the neighbouring months' days.
+    days = []
     d = shown - timedelta(days=(shown.weekday() + 1) % 7)
-    cells = []
     while d <= month_last:
         for _ in range(7):
-            cls = "cal-cell"
-            if d == selected:
-                cls += " sel"
-            if d == date.today():
-                cls += " today"
-            if d.month != shown.month:
-                cls += " off"
-            cells.append(
-                f'<a class="{cls}" href="/owner?day={d.isoformat()}'
-                f'&month={d.strftime("%Y-%m")}">{d.day}</a>')
+            days.append(d)
             d += timedelta(days=1)
+    # One grouped count for the whole rendered grid — non-cancelled cleans
+    # per day, padding days included, right for any paged month.
+    counts = dict(db().execute(
+        """SELECT day, COUNT(*) FROM bookings
+           WHERE day >= ? AND day <= ? AND status != 'cancelled'
+           GROUP BY day""",
+        (days[0].isoformat(), days[-1].isoformat())).fetchall())
+    cells = []
+    for d in days:
+        cls = "cal-cell"
+        if d == selected:
+            cls += " sel"
+        if d == date.today():
+            cls += " today"
+        if d.month != shown.month:
+            cls += " off"
+        n = counts.get(d.isoformat(), 0)
+        dots = ""
+        if n >= FULL_DAY:
+            # Full day: ring the inside edge of the cell with FULL_DAY
+            # dots (never more) so a packed day reads at a glance.
+            cls += " full has-dots"
+            dots = ('<span class="cdots ring" aria-hidden="true">'
+                    + '<span class="cdot"></span>' * FULL_DAY + '</span>')
+        elif n:
+            cls += " has-dots"
+            dots = ('<span class="cdots" aria-hidden="true">'
+                    + '<span class="cdot"></span>' * n + '</span>')
+        cells.append(
+            f'<a class="{cls}" href="/owner?day={d.isoformat()}'
+            f'&month={d.strftime("%Y-%m")}">'
+            f'<span class="cal-num">{d.day}</span>{dots}</a>')
     dows = "".join(f'<div class="cal-dow">{n}</div>'
                    for n in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
     return f"""
-      <div class="cal" style="margin:0 auto">
+      <div class="cal board-cal" style="margin:0 auto">
         <div class="cal-head">{prev_arrow}<span class="cal-title">
         {shown.strftime("%B %Y")}</span>{next_arrow}</div>
         <div class="cal-grid">{dows}{"".join(cells)}</div>
@@ -1620,10 +1721,10 @@ def owner_home():
         '<div class="card"><p>No cleans booked for this day.</p></div>'
     if selected == today:
         heading = f"Today's board — {pretty_day(today_iso)}"
-        back = ""
+        back = '<p class="sub backline"></p>'
     else:
         heading = f"Board — {pretty_day(selected.isoformat())}"
-        back = ('<p class="sub" style="margin:0 0 8px">'
+        back = ('<p class="sub backline">'
                 '<a href="/owner">&larr; Back to today</a></p>')
     if unassigned:
         job_word = "job" if unassigned == 1 else "jobs"
@@ -1734,10 +1835,16 @@ def owner_booking_action(bid, action):
                   "cancel": "cancelled"}.get(action)
     if new_status is None:
         abort(400)
-    db().execute("UPDATE bookings SET status = ? WHERE id = ?",
-                 (new_status, bid))
+    stamp_col = STAMP_COLUMNS.get(new_status)
+    if stamp_col:
+        db().execute(
+            f"UPDATE bookings SET status = ?, {stamp_col} = ? WHERE id = ?",
+            (new_status, _stamp_now(), bid))
+    else:
+        db().execute("UPDATE bookings SET status = ? WHERE id = ?",
+                     (new_status, bid))
     db().commit()
-    flash(f"Booking {b['ref']} is now {STATUS_LABELS[new_status].lower()}.")
+    # No success banner — the card's status pill already shows the result.
     return redirect(url_for("owner_bookings"))
 
 
@@ -1766,10 +1873,8 @@ def owner_booking_assign(bid):
     db().execute("UPDATE bookings SET cleaner_id = ? WHERE id = ?",
                  (cleaner_id, bid))
     db().commit()
-    if cleaner_id is not None:
-        flash(f"Booking {b['ref']} assigned to {row['name']}.")
-    else:
-        flash(f"Booking {b['ref']} is now unassigned.")
+    # No success banner — the card already shows the new cleaner (or its
+    # absence) in the picker and the cleaner line.
     nxt = request.form.get("next") or ""
     if not (nxt == "/owner" or nxt.startswith("/owner?")
             or nxt == "/owner/bookings"
@@ -2164,6 +2269,7 @@ def cleaner_day(cid):
           <p>🏠 {_e(b['address'] or b['area'])}</p>
           {phone}{notes}
           <p>{status_pill(b['status'])}</p>
+          {stamps_line(b)}
           {controls(b)}
         </div>""")
     body = f"""
@@ -2184,7 +2290,9 @@ def cleaner_action(cid, bid, status):
         (bid, cid)).fetchone()
     if b is None:
         abort(404)
-    db().execute("UPDATE bookings SET status = ? WHERE id = ?", (status, bid))
+    db().execute(
+        f"UPDATE bookings SET status = ?, {STAMP_COLUMNS[status]} = ? "
+        "WHERE id = ?", (status, _stamp_now(), bid))
     db().commit()
     flash({"on_the_way": "Marked on the way — the office can see you're rolling.",
            "arrived": "Marked arrived. Have a great clean!",
