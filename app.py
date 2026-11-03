@@ -293,16 +293,23 @@ body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-s
 background:var(--bg);color:var(--ink)}
 a{color:var(--pink-dark)}
 header.site{background:linear-gradient(120deg,#c2236a,#e84393 55%,#f472a5);color:#fff;
-padding:16px 20px;box-shadow:0 2px 12px rgba(232,67,147,.25)}
-header.site .wrap{max-width:1020px;margin:0 auto;display:flex;flex-wrap:wrap;
-align-items:center;gap:12px}
+padding:10px 20px;box-shadow:0 2px 12px rgba(232,67,147,.25)}
+header.site .wrap{max-width:1020px;margin:0 auto;display:flex;flex-wrap:nowrap;
+align-items:center;gap:12px;padding:0 18px}
 .brandmark{width:54px;height:54px;border-radius:14px;object-fit:cover;
-background:#fff;padding:2px;box-shadow:0 1px 6px rgba(157,28,87,.35)}
+background:#fff;padding:2px;box-shadow:0 1px 6px rgba(157,28,87,.35);
+flex:0 0 auto}
+.brand-stack{display:flex;flex-direction:column;justify-content:center;
+line-height:1.2;min-width:0;flex:1 1 auto}
 .logo{font-size:26px;font-weight:800;letter-spacing:.3px;color:#fff;
-text-decoration:none}
+text-decoration:none;white-space:nowrap}
 .logo .spark{color:#ffe066}
-.tagline{color:#ffd6e7;font-size:14px;margin-left:2px}
-.menu{margin-left:auto;position:relative}
+.tagline{color:#ffd6e7;font-size:14px;margin-left:2px;white-space:nowrap}
+.menu{margin-left:auto;position:relative;flex:0 0 auto}
+@media (max-width:600px){.logo{font-size:21px}.tagline{font-size:12.5px}
+.menu summary{padding:7px 12px;font-size:13.5px}}
+@media (max-width:380px){.logo{font-size:19px;letter-spacing:0}
+header.site .wrap{gap:10px}}
 .menu summary{list-style:none;cursor:pointer;color:#fff;font-weight:600;
 font-size:14px;background:rgba(255,255,255,.18);padding:8px 14px;
 border-radius:999px;-webkit-tap-highlight-color:transparent}
@@ -316,6 +323,15 @@ padding:11px 14px;font-size:15px;border-radius:8px}
 .menu-list a:hover{background:var(--blush)}
 .menu-list a.cur{font-weight:800;color:var(--pink-deep)}
 .menu-list a.cur::before{content:"✦ ";color:var(--pink)}
+.addr-wrap{position:relative}
+.addr-list{position:absolute;left:0;right:0;top:calc(100% + 6px);background:#fff;
+border:1px solid var(--line);border-radius:12px;
+box-shadow:0 10px 30px rgba(157,28,87,.28);padding:6px;z-index:60;
+max-height:270px;overflow:auto}
+.addr-list button{display:block;width:100%;text-align:left;background:none;
+border:0;color:var(--ink);font:inherit;font-size:14.5px;padding:10px 12px;
+border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.addr-list button:hover,.addr-list button.sel{background:var(--blush)}
 .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 40px}
 h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
 h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
@@ -451,6 +467,104 @@ BOOK_SCROLL_JS = """
 </script>
 """
 
+# Booking page only: free address autocomplete via Photon (OpenStreetMap,
+# no API key), biased to HRM. Pure enhancement — the Address field stays a
+# plain free-text input if the fetch fails, times out, or finds nothing.
+ADDRESS_AC_JS = """
+<script>
+(function () {
+  var input = document.getElementById("addr-input");
+  var list = document.getElementById("addr-list");
+  if (!input || !list || !window.fetch) return;
+  var timer = null, seq = 0, items = [], active = -1;
+  function compose(p) {
+    var head = ((p.housenumber || "") + " " +
+      (p.street || p.name || "")).trim();
+    var s = head;
+    if (p.city) s = s ? s + ", " + p.city : p.city;
+    if (p.state === "Nova Scotia") s += ", NS";
+    return s;
+  }
+  function close() {
+    list.hidden = true; list.innerHTML = ""; items = []; active = -1;
+  }
+  function pick(i) {
+    if (items[i]) input.value = items[i];
+    close();
+    input.focus();
+  }
+  function render() {
+    list.innerHTML = "";
+    items.forEach(function (txt, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = txt;
+      if (i === active) b.className = "sel";
+      b.addEventListener("mousedown", function (ev) {
+        ev.preventDefault();
+        pick(i);
+      });
+      list.appendChild(b);
+    });
+    list.hidden = items.length === 0;
+  }
+  function fetchNow(q) {
+    var my = ++seq;
+    var url = "https://photon.komoot.io/api/?q=" + encodeURIComponent(q) +
+      "&lat=44.6488&lon=-63.5752" +
+      "&bbox=-64.35,44.30,-63.20,45.05&limit=6&lang=en";
+    var ctl = window.AbortController ? new AbortController() : null;
+    var killer = ctl ? setTimeout(function () { ctl.abort(); }, 4000) : null;
+    fetch(url, ctl ? { signal: ctl.signal } : undefined)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (killer) clearTimeout(killer);
+        if (my !== seq) return;
+        var seen = {}, out = [];
+        (data.features || []).forEach(function (f) {
+          var p = (f && f.properties) || {};
+          if (p.state !== "Nova Scotia") return;
+          if (!p.street && !p.name) return;
+          var s = compose(p);
+          if (s && !seen[s]) { seen[s] = 1; out.push(s); }
+        });
+        items = out.slice(0, 6);
+        active = -1;
+        if (items.length) render(); else close();
+      })
+      .catch(function () {
+        if (killer) clearTimeout(killer);
+        if (my === seq) close();
+      });
+  }
+  input.addEventListener("input", function () {
+    var q = input.value.trim();
+    if (timer) clearTimeout(timer);
+    if (q.length < 5) { close(); return; }
+    timer = setTimeout(function () { fetchNow(q); }, 250);
+  });
+  input.addEventListener("keydown", function (ev) {
+    if (list.hidden || !items.length) return;
+    if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+      ev.preventDefault();
+      active = ev.key === "ArrowDown" ?
+        Math.min(active + 1, items.length - 1) : Math.max(active - 1, 0);
+      render();
+    } else if (ev.key === "Enter" && active >= 0) {
+      ev.preventDefault();
+      pick(active);
+    } else if (ev.key === "Escape") {
+      close();
+    }
+  });
+  document.addEventListener("click", function (ev) {
+    if (ev.target !== input && !list.contains(ev.target)) close();
+  });
+  input.addEventListener("blur", function () { setTimeout(close, 150); });
+})();
+</script>
+"""
+
 
 def page(title, body, **ctx):
     flashes = "".join(
@@ -479,8 +593,10 @@ def page(title, body, **ctx):
 <body>
 <header class="site"><div class="wrap">
 <img class="brandmark" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
+<div class="brand-stack">
 <a class="logo" href="/">Maid <span class="spark">✦</span> To Sparkle</a>
 <span class="tagline">Halifax &amp; HRM cleaning</span>
+</div>
 {nav}</div></header>
 <div class="wrap">{flashes}{body}</div>
 <footer class="site">Maid To Sparkle — demonstration website.<br>
@@ -833,13 +949,16 @@ def book():
         <select name="area">{AREA_OPTS}</select></div>
       </div>
       <label>Address</label>
-      <input type="text" name="address" placeholder="Street address or area landmark">
+      <div class="addr-wrap">
+      <input type="text" id="addr-input" name="address" autocomplete="off" placeholder="Street address or area landmark">
+      <div class="addr-list" id="addr-list" hidden></div>
+      </div>
       <label>Anything we should know?</label>
       <textarea name="notes" placeholder="Entry instructions, pets, priorities…"></textarea>
       <p style="margin-top:20px"><button class="btn-book" type="submit">
       {BOLT_SVG}Confirm my booking</button></p>
     </form>"""
-    body += BOOK_SCROLL_JS
+    body += BOOK_SCROLL_JS + ADDRESS_AC_JS
     return page("Book a Clean", body)
 
 
