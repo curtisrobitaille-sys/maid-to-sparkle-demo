@@ -343,6 +343,12 @@ padding:22px;margin-top:18px;box-shadow:0 2px 12px rgba(232,67,147,.10)}
 .signin-logo{display:block;width:112px;height:112px;object-fit:cover;
 border-radius:22px;margin:0 auto 6px}
 .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
+.hero-cta{flex-wrap:nowrap}
+.hero-cta .btn-book,.hero-cta .btn{min-width:0;white-space:nowrap}
+@media(max-width:600px){.hero-cta{gap:10px}
+.hero-cta .btn-book{flex:1.55 1 0;font-size:13px;padding:11px 8px;gap:6px}
+.hero-cta .btn{flex:1 1 0;font-size:14px;padding:11px 8px;text-align:center}
+.hero{padding:18px 14px}}
 .btn{display:inline-block;background:var(--pink);color:#fff;text-decoration:none;
 padding:13px 22px;border-radius:10px;font-weight:700;font-size:16px;border:0;
 cursor:pointer;box-shadow:0 2px 8px rgba(232,67,147,.25)}
@@ -366,6 +372,18 @@ transition:transform .3s ease-out}
 .btn-book:hover .bolt{transform:rotate(-12deg) scale(1.2)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
 gap:14px;margin-top:14px}
+.svc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;
+margin-top:14px}
+@media(min-width:760px){.svc-grid{grid-template-columns:repeat(3,1fr);
+gap:14px}}
+.svc-grid .card{padding:14px;display:flex;flex-direction:column}
+.svc-grid .card h3{font-size:15.5px;line-height:1.25;overflow-wrap:break-word}
+.svc-grid .card p{font-size:13.5px;line-height:1.45}
+.svc-grid .svc-actions{margin-top:auto;padding-top:10px}
+.svc-grid .btn-book{font-size:12.5px;padding:8px 11px;gap:6px;
+white-space:nowrap;max-width:100%}
+.svc-grid .btn-book .bolt{width:13px;height:13px}
+.svc-grid .svc-quote{display:block;margin-top:8px;font-size:13.5px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
 padding:18px;box-shadow:0 1px 6px rgba(232,67,147,.06)}
 .card h3{margin:0 0 6px;font-size:18px;color:var(--pink-deep)}
@@ -376,6 +394,12 @@ font-weight:700;background:var(--blush2);color:var(--pink-dark)}
 .pill.red{background:#fee2e2;color:var(--red)}
 .pill.grey{background:#f3e2e9;color:#7a5563}
 .pill.green{background:#dcfce7;color:#166534}
+.tl{display:inline-block;width:11px;height:11px;border-radius:50%;
+margin-right:6px;vertical-align:-1px;flex:none}
+.tl-red{background:#ef4444;box-shadow:0 0 7px 2px rgba(239,68,68,.55)}
+.tl-amber{background:#f59e0b;box-shadow:0 0 7px 2px rgba(245,158,11,.55)}
+.tl-green{background:#22c55e;box-shadow:0 0 7px 2px rgba(34,197,94,.55)}
+.tl-grey{background:#c4b0ba;box-shadow:0 0 5px 1px rgba(160,120,135,.35)}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);
 border-radius:12px;overflow:hidden}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);
@@ -629,10 +653,21 @@ def slot_taken(day_iso, slot):
     return row[0] > 0
 
 
+# Traffic-light dot shown beside the status label: red while the cleaner
+# is on the way, amber once the job has started, green when complete.
+# Not-yet-started bookings get a neutral grey; cancelled gets no light.
+TL_CLASS = {"on_the_way": "tl-red", "arrived": "tl-amber",
+            "done": "tl-green", "requested": "tl-grey",
+            "confirmed": "tl-grey"}
+
+
 def status_pill(status):
     cls = {"requested": "rose", "confirmed": "green", "on_the_way": "rose",
            "arrived": "rose", "done": "", "cancelled": "red"}.get(status, "grey")
-    return f'<span class="pill {cls}">{STATUS_LABELS.get(status, status)}</span>'
+    tl = TL_CLASS.get(status)
+    dot = f'<span class="tl {tl}"></span>' if tl else ""
+    return (f'<span class="pill {cls}">{dot}'
+            f'{STATUS_LABELS.get(status, status)}</span>')
 
 
 # ---------------------------------------------------------------- customer
@@ -640,8 +675,8 @@ def status_pill(status):
 def landing():
     cards = "".join(
         f"""<div class="card"><h3>{name}</h3><p>{desc}</p>
-        <p><a class="btn-book" href="/book?service={key}">{BOLT_SVG}Book this &rarr;</a> ·
-        <a href="/quote?service={key}">Get a quote</a></p></div>"""
+        <p class="svc-actions"><a class="btn-book" href="/book?service={key}">{BOLT_SVG}Book this &rarr;</a>
+        <a class="svc-quote" href="/quote?service={key}">Get a quote</a></p></div>"""
         for key, name, desc in SERVICES)
     body = f"""
     <div class="hero">
@@ -649,7 +684,7 @@ def landing():
       <h1>Your home called... it wants a <span style="color:var(--pink)">reset</span>.</h1>
       <p class="sub" style="font-size:18px"><b>✦ Now booking new clients</b>
       &nbsp;·&nbsp; Serving <b>Halifax &amp; HRM</b></p>
-      <div class="cta-row">
+      <div class="cta-row hero-cta">
         <a class="btn-book" href="/book">{BOLT_SVG}Book Your Clean ✨</a>
         <a class="btn rose" href="/quote">Get a Quote</a>
       </div>
@@ -661,7 +696,7 @@ def landing():
       &nbsp;·&nbsp; ✦ Locally owned in Halifax</p>
     </div>
     <h2>Our services</h2>
-    <div class="grid">{cards}</div>
+    <div class="svc-grid">{cards}</div>
     <h2>How it works</h2>
     <div class="grid">
       <div class="card"><h3>1. Tell us about your space</h3>
