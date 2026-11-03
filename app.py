@@ -27,21 +27,44 @@ DB_PATH = os.path.join(BASE, "demo.db")
 app = Flask(__name__)
 app.secret_key = "maid-demo-only-not-a-real-secret"
 
+import base64
+
+from brand_images import BANNER_B64, LOGO_B64
+
+BANNER_BYTES = base64.b64decode(BANNER_B64)
+LOGO_BYTES = base64.b64decode(LOGO_B64)
+
+
+def _brand_image(data):
+    resp = app.response_class(data, mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@app.route("/brand/banner.jpg")
+def brand_banner():
+    return _brand_image(BANNER_BYTES)
+
+
+@app.route("/brand/logo.jpg")
+def brand_logo():
+    return _brand_image(LOGO_BYTES)
+
 OWNER_USER = "owner"
 OWNER_PASS = "sparkle-demo"
 
 SERVICES = [
-    ("residential", "Residential Cleaning",
+    ("residential", "Regular Cleans",
      "Regular home cleans — kitchens, bathrooms, floors, dusting, the works."),
-    ("deep", "Deep Clean",
+    ("deep", "Deep Cleans",
      "Top-to-bottom reset: baseboards, vents, inside appliances available."),
-    ("airbnb", "Airbnb Turnover",
+    ("airbnb", "Airbnb Turnovers",
      "Fast, reliable turnovers with laundry and restock — guest-ready every time."),
-    ("move", "Move-In / Move-Out",
+    ("move", "Move-In/Move-Out",
      "Empty-home cleans that get deposits back and new homes move-in ready."),
     ("construction", "Post-Construction",
      "Dust, debris and detail work after the reno crew leaves."),
-    ("commercial", "Commercial",
+    ("commercial", "Commercial Cleans",
      "Offices and small businesses, scheduled around your hours."),
 ]
 SERVICE_NAMES = {k: v for k, v, _d in SERVICES}
@@ -256,66 +279,75 @@ def seed(conn):
 
 # ---------------------------------------------------------------- page shell
 CSS = """
-:root{--teal:#0d9488;--teal-dark:#0f766e;--aqua:#e6fffa;--aqua2:#ccfbf1;
---gold:#d97706;--gold-soft:#fef3c7;--ink:#134e4a;--mut:#5b7a76;
---line:#d7efec;--bg:#f7fdfc;--card:#ffffff;--red:#b91c1c}
+:root{--pink:#e84393;--pink-dark:#c2236a;--pink-deep:#9d1c57;
+--rose:#b76e79;--rose-soft:#fbe9ed;--blush:#ffecf3;--blush2:#ffd6e7;
+--peri:#6f7bd9;--ink:#42222e;--mut:#8a5f6d;--line:#f3cfdd;
+--bg:#fff8fa;--card:#ffffff;--red:#b91c1c}
 *{box-sizing:border-box}
 body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
 background:var(--bg);color:var(--ink)}
-a{color:var(--teal-dark)}
-header.site{background:linear-gradient(120deg,#0d9488,#14b8a6);color:#fff;
-padding:18px 20px}
+a{color:var(--pink-dark)}
+header.site{background:linear-gradient(120deg,#c2236a,#e84393 55%,#f472a5);color:#fff;
+padding:16px 20px;box-shadow:0 2px 12px rgba(232,67,147,.25)}
 header.site .wrap{max-width:1020px;margin:0 auto;display:flex;flex-wrap:wrap;
-align-items:center;gap:10px}
+align-items:center;gap:12px}
+.brandmark{width:54px;height:54px;border-radius:14px;object-fit:cover;
+background:#fff;padding:2px;box-shadow:0 1px 6px rgba(157,28,87,.35)}
 .logo{font-size:26px;font-weight:800;letter-spacing:.3px;color:#fff;
 text-decoration:none}
-.logo .spark{color:#fcd34d}
-.tagline{color:#ccfbf1;font-size:14px;margin-left:2px}
+.logo .spark{color:#ffe066}
+.tagline{color:#ffd6e7;font-size:14px;margin-left:2px}
 nav.main{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-nav.main a{color:#fff;text-decoration:none;background:rgba(255,255,255,.16);
+nav.main a{color:#fff;text-decoration:none;background:rgba(255,255,255,.18);
 padding:8px 14px;border-radius:999px;font-size:14px;font-weight:600}
-nav.main a:hover{background:rgba(255,255,255,.3)}
+nav.main a:hover{background:rgba(255,255,255,.32)}
 .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 40px}
-h1{font-size:30px;margin:8px 0 6px}
-h2{font-size:21px;margin:26px 0 10px}
+h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
+h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
 .sub{color:var(--mut);font-size:16px;line-height:1.5}
 .hero{background:var(--card);border:1px solid var(--line);border-radius:16px;
-padding:28px;margin-top:18px;box-shadow:0 2px 10px rgba(13,148,136,.06)}
+padding:22px;margin-top:18px;box-shadow:0 2px 12px rgba(232,67,147,.10)}
 .hero h1{margin-top:0}
+.hero-img{width:100%;display:block;border-radius:12px;margin-bottom:18px}
+.signin-logo{display:block;width:112px;height:112px;object-fit:cover;
+border-radius:22px;margin:0 auto 6px}
 .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
-.btn{display:inline-block;background:var(--teal);color:#fff;text-decoration:none;
+.btn{display:inline-block;background:var(--pink);color:#fff;text-decoration:none;
 padding:13px 22px;border-radius:10px;font-weight:700;font-size:16px;border:0;
-cursor:pointer}
-.btn:hover{background:var(--teal-dark)}
-.btn.gold{background:var(--gold)}
-.btn.ghost{background:#fff;color:var(--teal-dark);border:2px solid var(--teal)}
+cursor:pointer;box-shadow:0 2px 8px rgba(232,67,147,.25)}
+.btn:hover{background:var(--pink-dark)}
+.btn.rose{background:var(--rose)}
+.btn.ghost{background:#fff;color:var(--pink-dark);border:2px solid var(--pink);
+box-shadow:none}
 .btn.small{padding:8px 14px;font-size:14px;border-radius:8px}
 .btn.red{background:var(--red)}
-.btn.grey{background:#64748b}
+.btn.grey{background:#7a5563}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
 gap:14px;margin-top:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
-padding:18px;box-shadow:0 1px 6px rgba(13,148,136,.05)}
-.card h3{margin:0 0 6px;font-size:18px}
+padding:18px;box-shadow:0 1px 6px rgba(232,67,147,.06)}
+.card h3{margin:0 0 6px;font-size:18px;color:var(--pink-deep)}
 .card p{color:var(--mut);line-height:1.5;margin:4px 0}
 .pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;
-font-weight:700;background:var(--aqua2);color:var(--teal-dark)}
-.pill.gold{background:var(--gold-soft);color:var(--gold)}
+font-weight:700;background:var(--blush2);color:var(--pink-dark)}
+.pill.rose{background:var(--rose-soft);color:var(--rose)}
 .pill.red{background:#fee2e2;color:var(--red)}
-.pill.grey{background:#e2e8f0;color:#475569}
+.pill.grey{background:#f3e2e9;color:#7a5563}
 .pill.green{background:#dcfce7;color:#166534}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);
 border-radius:12px;overflow:hidden}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);
 font-size:14px;vertical-align:top}
-th{background:var(--aqua);color:var(--teal-dark)}
+th{background:var(--blush);color:var(--pink-dark)}
 form.panel{background:#fff;border:1px solid var(--line);border-radius:14px;
-padding:22px;margin-top:16px}
+padding:22px;margin-top:16px;box-shadow:0 1px 6px rgba(232,67,147,.06)}
 label{display:block;font-weight:700;font-size:14px;margin:16px 0 6px}
 label:first-child{margin-top:0}
 input[type=text],input[type=email],input[type=tel],input[type=password],select,textarea{
 width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:9px;
 font-size:16px;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--blush2);
+border-color:var(--pink)}
 textarea{min-height:80px}
 .checks{display:flex;flex-wrap:wrap;gap:8px}
 .checks label{font-weight:500;margin:0;background:var(--bg);border:1px solid var(--line);
@@ -324,18 +356,19 @@ border-radius:999px;padding:8px 13px;cursor:pointer;font-size:14px}
 .radios label{font-weight:600;margin:0;border:1.5px solid var(--line);
 border-radius:10px;padding:10px 14px;cursor:pointer;font-size:14px;background:#fff}
 .radios input{margin-right:6px}
-.radios label.taken{opacity:.45;cursor:not-allowed;background:#f1f5f9}
+.radios label.taken{opacity:.45;cursor:not-allowed;background:#f9edf2}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 @media(max-width:640px){.two{grid-template-columns:1fr}}
-.flash{background:var(--gold-soft);border:1px solid #fcd34d;color:#92400e;
+.flash{background:#ffe4ef;border:1px solid #f78fb8;color:#8f1a52;
 border-radius:10px;padding:12px 16px;margin:14px 0;font-weight:600}
-.jobcard{border-left:6px solid var(--teal)}
+.jobcard{border-left:6px solid var(--pink)}
 .jobcard .when{font-size:20px;font-weight:800}
 footer.site{border-top:1px solid var(--line);color:var(--mut);font-size:12.5px;
 text-align:center;padding:18px 12px 30px;line-height:1.6}
 .kv{font-size:14px;line-height:1.7}
 .kv b{color:var(--ink)}
 .big-tap{display:block;text-align:center;padding:16px;font-size:18px;margin-top:10px}
+.peri{color:var(--peri)}
 """
 
 
@@ -349,6 +382,7 @@ def page(title, body, **ctx):
 <title>{_e(title)} — Maid To Sparkle</title><style>{CSS}</style></head>
 <body>
 <header class="site"><div class="wrap">
+<img class="brandmark" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
 <a class="logo" href="/">Maid <span class="spark">✦</span> To Sparkle</a>
 <span class="tagline">Halifax &amp; HRM cleaning</span>
 <nav class="main">
@@ -388,8 +422,8 @@ def slot_taken(day_iso, slot):
 
 
 def status_pill(status):
-    cls = {"requested": "gold", "confirmed": "green", "on_the_way": "gold",
-           "arrived": "gold", "done": "", "cancelled": "red"}.get(status, "grey")
+    cls = {"requested": "rose", "confirmed": "green", "on_the_way": "rose",
+           "arrived": "rose", "done": "", "cancelled": "red"}.get(status, "grey")
     return f'<span class="pill {cls}">{STATUS_LABELS.get(status, status)}</span>'
 
 
@@ -403,13 +437,16 @@ def landing():
         for key, name, desc in SERVICES)
     body = f"""
     <div class="hero">
-      <h1>Your space, <span style="color:var(--gold)">sparkling clean</span> — without the stress.</h1>
-      <p class="sub">Reliable, detailed cleaning across <b>Halifax &amp; HRM</b> —
-      homes, Airbnbs, move-outs and small businesses. Book in about a minute,
-      or send a quick quote form and we'll confirm the details with you.</p>
+      <img class="hero-img" src="/brand/banner.jpg" alt="Maid To Sparkle — Halifax &amp; HRM cleaning">
+      <h1>Your home called... it wants a <span style="color:var(--pink)">reset</span>.</h1>
+      <p class="sub" style="font-size:18px"><b>✦ Now booking new clients</b>
+      &nbsp;·&nbsp; Serving <b>Halifax &amp; HRM</b></p>
+      <p class="sub">Reliable, detailed cleaning — homes, Airbnbs, move-outs
+      and small businesses. Book in about a minute, or send a quick quote
+      form and we'll confirm the details with you.</p>
       <div class="cta-row">
         <a class="btn" href="/book">Book a Clean</a>
-        <a class="btn gold" href="/quote">Get a Quote</a>
+        <a class="btn rose" href="/quote">Get a Quote</a>
       </div>
       <p class="sub" style="margin-top:14px">✦ Eco-friendly products by default
       &nbsp;·&nbsp; ✦ Weekly, biweekly, monthly or one-time
@@ -432,11 +469,7 @@ def landing():
     return page("Home", body)
 
 
-QUOTE_SERVICES = [("residential", "Maintenance / regular clean"),
-                  ("deep", "Deep clean"), ("move", "Move-in / move-out"),
-                  ("airbnb", "Airbnb turnover"),
-                  ("construction", "Post-construction"),
-                  ("commercial", "Commercial")]
+QUOTE_SERVICES = [(k, name) for k, name, _d in SERVICES]
 EXTRAS = ["den/office", "finished basement", "laundry room",
           "inside appliances", "inside windows"]
 
@@ -533,7 +566,7 @@ def quote():
       <input type="text" name="pref_dates" placeholder="e.g. next Tue or Thu morning">
       <label>Anything we should know?</label>
       <textarea name="notes" placeholder="Entry instructions, priorities, sensitivities…"></textarea>
-      <p style="margin-top:20px"><button class="btn gold" type="submit">
+      <p style="margin-top:20px"><button class="btn rose" type="submit">
       Send my quote request</button></p>
     </form>"""
     return page("Get a Quote", body)
@@ -610,7 +643,7 @@ def book():
         d = today + timedelta(days=i)
         label = ("Today" if i == 0 else "Tomorrow" if i == 1
                  else d.strftime("%a %d"))
-        active = ' style="background:var(--teal);color:#fff"' if d == chosen else ""
+        active = ' style="background:var(--pink);color:#fff"' if d == chosen else ""
         day_links.append(
             f'<a class="btn ghost small" href="/book?service={preset}'
             f'&day={d.isoformat()}"{active}>{label}</a>')
@@ -676,7 +709,7 @@ def booked(ref):
       just quote your reference.</p>
       <div class="cta-row" style="justify-content:center">
         <a class="btn ghost" href="/">Back to home</a>
-        <a class="btn gold" href="/quote">Get a quote for more</a>
+        <a class="btn rose" href="/quote">Get a quote for more</a>
       </div>
     </div>"""
     return page("Booked", body)
@@ -705,10 +738,11 @@ def login():
     <p class="sub">The control room: today's board, bookings, quote
     requests and the client book.</p>
     <form class="panel" method="post" style="max-width:430px">
+      <img class="signin-logo" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
       <label>Username</label><input type="text" name="user" required>
       <label>Password</label><input type="password" name="password" required>
       <p style="margin-top:18px"><button class="btn" type="submit">Sign in</button></p>
-      <p class="kv" style="background:var(--aqua);border-radius:9px;padding:10px 14px">
+      <p class="kv" style="background:var(--blush);border-radius:9px;padding:10px 14px">
       <b>Demo login</b> — user: <b>{OWNER_USER}</b> · password: <b>{OWNER_PASS}</b></p>
     </form>"""
     return page("Owner Sign-In", body)
@@ -838,7 +872,7 @@ def owner_quotes():
         pets = q["pets_text"] or ("yes" if q["pets"] == "yes" else "no")
         cards.append(f"""
         <div class="card">
-          <h3>{_e(q['name'])} <span class="pill gold">quote request</span></h3>
+          <h3>{_e(q['name'])} <span class="pill rose">quote request</span></h3>
           <p class="kv">📞 {_e(q['phone'])} · ✉️ {_e(q['email'])}<br>
           <b>Home:</b> {_e(q['prop_type'])}, {_e(q['bedrooms'])} bed /
           {_e(q['bathrooms'])} bath, {_e(q['sqft'])} — {_e(q['area'])}<br>
