@@ -787,6 +787,16 @@ transform:none;width:auto;display:block}
 .board-cal .cdots.ring .cdot:nth-child(8){bottom:3px;left:3px}
 .board-cal .cdots.ring .cdot:nth-child(9){left:3px;top:50%;margin-top:-3px}
 #times{scroll-margin-top:96px}
+/* Site-wide ghost watermark (shared base): ONE fixed layer above every
+   page — hero art, cards, and the open Menu included — repeating
+   "HALIFAXFX · DEMO" on a diagonal from a single inline-SVG tile, two
+   staggered rows per tile. Deep plum (--ink) at 6% opacity: barely
+   there in normal use, but it rides along in every screenshot and
+   brands the capture. pointer-events:none means it can never intercept
+   a tap; inset:0 + overflow:hidden means it can never scroll. */
+.wm{position:fixed;inset:0;z-index:9999;pointer-events:none;overflow:hidden;
+background-repeat:repeat;
+background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='340'%3E%3Cg fill='%2342222e' fill-opacity='0.06' font-family='Arial, Helvetica, sans-serif' font-size='14' font-weight='700' letter-spacing='2.5'%3E%3Ctext x='15' y='95' transform='rotate(-18 15 95)'%3EHALIFAXFX %C2%B7 DEMO%3C/text%3E%3Ctext x='225' y='255' transform='rotate(-18 225 255)'%3EHALIFAXFX %C2%B7 DEMO%3C/text%3E%3C/g%3E%3C/svg%3E")}
 """
 
 # Booking page only: keep the reader's place across the calendar's page
@@ -1185,6 +1195,7 @@ def page(title, body, **ctx):
 <footer class="site">Maid To Sparkle — demonstration website.<br>
 Demo built by <b>HalifaxFX</b> · Sample data only — no real bookings are taken here.<br>
 <a href="/login">Staff login</a></footer>
+<div class="wm" aria-hidden="true"></div>
 </body></html>"""
     return render_template_string(html, **ctx)
 
