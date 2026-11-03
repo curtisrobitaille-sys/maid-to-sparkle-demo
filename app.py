@@ -369,6 +369,30 @@ text-align:center;padding:18px 12px 30px;line-height:1.6}
 .kv b{color:var(--ink)}
 .big-tap{display:block;text-align:center;padding:16px;font-size:18px;margin-top:10px}
 .peri{color:var(--peri)}
+.cal{max-width:344px}
+.cal-head{display:flex;align-items:center;justify-content:space-between;
+margin-bottom:8px}
+.cal-title{font-weight:800;font-size:16px;color:var(--pink-deep)}
+.cal-nav{display:inline-block;width:34px;height:34px;line-height:32px;
+text-align:center;border:1.5px solid var(--line);border-radius:9px;
+color:var(--pink-dark);text-decoration:none;font-size:19px;font-weight:700;
+background:#fff}
+.cal-nav.off{opacity:.35;color:var(--mut)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-dow{text-align:center;font-size:12px;font-weight:700;color:var(--mut);
+padding:4px 0}
+.cal-cell{display:flex;align-items:center;justify-content:center;height:42px;
+border-radius:9px;font-weight:600;font-size:15px;color:var(--ink);
+text-decoration:none;position:relative;background:#fff;
+border:1.5px solid transparent}
+a.cal-cell{border-color:var(--line)}
+a.cal-cell:hover{border-color:var(--pink)}
+.cal-cell.sel{background:var(--pink);color:#fff;border-color:var(--pink)}
+.cal-cell.off{color:var(--mut);opacity:.45;background:transparent}
+.cal-cell.today::after{content:"";position:absolute;bottom:5px;left:50%;
+transform:translateX(-50%);width:5px;height:5px;border-radius:50%;
+background:var(--pink)}
+.cal-cell.sel.today::after{background:#fff}
 """
 
 
@@ -638,15 +662,68 @@ def book():
         chosen = today + timedelta(days=1)
     if chosen < today or chosen > today + timedelta(days=14):
         chosen = today + timedelta(days=1)
-    day_links = []
-    for i in range(15):
-        d = today + timedelta(days=i)
-        label = ("Today" if i == 0 else "Tomorrow" if i == 1
-                 else d.strftime("%a %d"))
-        active = ' style="background:var(--pink);color:#fff"' if d == chosen else ""
-        day_links.append(
-            f'<a class="btn ghost small" href="/book?service={preset}'
-            f'&day={d.isoformat()}"{active}>{label}</a>')
+    # Plain month calendar for the booking window (today .. today+14),
+    # modelled on the Rebuilt attendance calendar's plain look: month title,
+    # < > arrows, weekday header, uniform day cells with just the number.
+    # Arrows page between the months the window touches and stop there;
+    # picking a day uses the same /book?day= link the old pill row used.
+    win_start, win_end = today, today + timedelta(days=14)
+    first_month = win_start.replace(day=1)
+    last_month = win_end.replace(day=1)
+
+    def shift_month(d, n):
+        y, m = d.year, d.month + n
+        while m < 1:
+            y, m = y - 1, m + 12
+        while m > 12:
+            y, m = y + 1, m - 12
+        return date(y, m, 1)
+
+    mparam = request.args.get("month", "")
+    try:
+        shown = (date.fromisoformat(mparam + "-01") if mparam
+                 else chosen.replace(day=1))
+    except ValueError:
+        shown = chosen.replace(day=1)
+    shown = min(max(shown.replace(day=1), first_month), last_month)
+
+    def month_url(d):
+        return (f"/book?service={preset}&day={chosen.isoformat()}"
+                f"&month={d.strftime('%Y-%m')}")
+
+    prev_m, next_m = shift_month(shown, -1), shift_month(shown, 1)
+    prev_arrow = (f'<a class="cal-nav" href="{month_url(prev_m)}">‹</a>'
+                  if shown > first_month
+                  else '<span class="cal-nav off">‹</span>')
+    next_arrow = (f'<a class="cal-nav" href="{month_url(next_m)}">›</a>'
+                  if shown < last_month
+                  else '<span class="cal-nav off">›</span>')
+    month_last = shift_month(shown, 1) - timedelta(days=1)
+    # Sunday-start grid, padded with the neighbouring months' days (dimmed).
+    d = shown - timedelta(days=(shown.weekday() + 1) % 7)
+    cells = []
+    while d <= month_last:
+        for _ in range(7):
+            if d.month != shown.month or not (win_start <= d <= win_end):
+                cells.append(f'<span class="cal-cell off">{d.day}</span>')
+            else:
+                cls = "cal-cell"
+                if d == chosen:
+                    cls += " sel"
+                if d == today:
+                    cls += " today"
+                cells.append(
+                    f'<a class="{cls}" href="/book?service={preset}'
+                    f'&day={d.isoformat()}">{d.day}</a>')
+            d += timedelta(days=1)
+    dows = "".join(f'<div class="cal-dow">{n}</div>'
+                   for n in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
+    calendar_html = f"""
+      <div class="cal">
+        <div class="cal-head">{prev_arrow}<span class="cal-title">
+        {shown.strftime("%B %Y")}</span>{next_arrow}</div>
+        <div class="cal-grid">{dows}{"".join(cells)}</div>
+      </div>"""
     slot_radios = []
     for s in SLOTS:
         taken = slot_taken(chosen.isoformat(), s)
@@ -669,7 +746,7 @@ def book():
       <label>Service</label>
       <select name="service">{svc_opts}</select>
       <label>Day</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">{"".join(day_links)}</div>
+      {calendar_html}
       <input type="hidden" name="day" value="{chosen.isoformat()}">
       <label>Start time — {pretty_day(chosen.isoformat())}</label>
       <div class="radios">{"".join(slot_radios)}</div>
