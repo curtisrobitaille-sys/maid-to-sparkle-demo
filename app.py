@@ -332,6 +332,46 @@ max-height:270px;overflow:auto}
 border:0;color:var(--ink);font:inherit;font-size:14.5px;padding:10px 12px;
 border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .addr-list button:hover,.addr-list button.sel{background:var(--blush)}
+.book-head{margin-top:-14px}
+.book-head h1{margin:0 0 3px}
+.book-head .sub{margin:0;line-height:1.35}
+.panel.book-form{margin-top:8px}
+.no-cleaner{color:var(--mut)}
+.jobcard.edge-red{border-left-color:#ef4444}
+.jobcard.edge-amber{border-left-color:#f59e0b}
+.jobcard.edge-green{border-left-color:#22c55e}
+.jobcard.edge-grey{border-left-color:#c4b0ba}
+.board-grid{gap:10px}
+.jobcard.compact{padding:12px 14px}
+.jobcard.compact .when{font-size:16.5px}
+.jobcard.compact p{margin:3px 0;font-size:14px;line-height:1.45}
+.jobcard.compact .pill{font-size:11px;padding:2px 8px}
+.jobcard.compact .tl{width:9px;height:9px;margin-right:5px}
+.jobcard.compact .assign-form{margin-top:7px;gap:6px}
+.jobcard.compact .assign-form select{padding:6px 8px;font-size:13.5px}
+.jobcard.compact .btn.small{padding:6px 11px;font-size:13px}
+.assign-form{display:flex;gap:8px;align-items:center;margin-top:10px}
+.assign-form select{flex:1 1 auto;width:auto;min-width:0;padding:8px 10px;
+font-size:14.5px}
+.assign-form .btn{flex:0 0 auto}
+.client-search{margin:16px 0 4px}
+.client-search label{margin:0 0 6px}
+.client-search-row{display:flex;gap:8px}
+.client-search-row input{flex:1 1 auto;min-width:0}
+.client-search-row .btn{flex:0 0 auto}
+.client-card{margin-top:12px;padding:0}
+.client-card summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;
+align-items:baseline;gap:4px 10px;padding:15px 18px;
+-webkit-tap-highlight-color:transparent}
+.client-card summary::-webkit-details-marker{display:none}
+.client-card summary::after{content:"\\25B8";margin-left:auto;color:var(--pink);
+font-weight:800;transition:transform .15s ease}
+.client-card[open ] summary::after{transform:rotate(90deg)}
+.client-name{font-weight:800;font-size:17px;color:var(--pink-deep)}
+.client-phone{color:var(--mut);font-size:14.5px}
+.client-detail{padding:0 18px 16px}
+.client-detail p{margin:6px 0;color:var(--mut);line-height:1.55}
+.client-detail b{color:var(--ink)}
 .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 40px}
 h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
 h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
@@ -660,6 +700,13 @@ TL_CLASS = {"on_the_way": "tl-red", "arrived": "tl-amber",
             "done": "tl-green", "requested": "tl-grey",
             "confirmed": "tl-grey"}
 
+# Card left-edge colour by stage — the same hues as the TL_CLASS dots, so
+# the dot and the edge always agree. Cancelled gets no edge class and
+# keeps the plain pink edge it has today.
+EDGE_CLASS = {"on_the_way": "edge-red", "arrived": "edge-amber",
+              "done": "edge-green", "requested": "edge-grey",
+              "confirmed": "edge-grey"}
+
 
 def status_pill(status):
     cls = {"requested": "rose", "confirmed": "green", "on_the_way": "rose",
@@ -963,10 +1010,12 @@ def book():
         f'<option value="{k}"{" selected" if k == preset else ""}>{v}</option>'
         for k, v, _d in SERVICES)
     body = f"""
+    <div class="book-head">
     <h1>Book a clean</h1>
     <p class="sub">Pick a service, a day and a start time — real availability,
     no phone tag. Times shown are start times.</p>
-    <form class="panel" method="post">
+    </div>
+    <form class="panel book-form" method="post">
       <label>Service</label>
       <select name="service">{svc_opts}</select>
       <label>Day</label>
@@ -1059,39 +1108,125 @@ def logout():
     return redirect(url_for("landing"))
 
 
-def booking_card(b, controls=""):
+def booking_card(b, controls="", compact=False):
     cleaner = ""
     if b["cleaner_id"]:
         row = db().execute("SELECT name FROM cleaners WHERE id = ?",
                            (b["cleaner_id"],)).fetchone()
         if row:
             cleaner = f' · 👩 {_e(row["name"])}'
+    if not cleaner:
+        cleaner = ' · <span class="no-cleaner">No cleaner yet</span>'
     notes = f'<p>📝 {_e(b["notes"])}</p>' if b["notes"] else ""
+    assign = ""
+    if b["status"] not in ("done", "cancelled"):
+        opts = ['<option value="">Unassigned</option>']
+        for c in db().execute("SELECT * FROM cleaners ORDER BY name"):
+            sel = " selected" if c["id"] == b["cleaner_id"] else ""
+            opts.append(
+                f'<option value="{c["id"]}"{sel}>{_e(c["name"])}</option>')
+        nxt = request.path
+        if request.query_string:
+            nxt += "?" + request.query_string.decode()
+        assign = f"""
+      <form class="assign-form" method="post"
+        action="/owner/bookings/{b['id']}/assign">
+        <input type="hidden" name="next" value="{_e(nxt)}">
+        <select name="cleaner_id">{"".join(opts)}</select>
+        <button class="btn small" type="submit">Assign</button>
+      </form>"""
+    edge = EDGE_CLASS.get(b["status"])
+    edge_cls = f" {edge}" if edge else ""
+    compact_cls = " compact" if compact else ""
     return f"""
-    <div class="card jobcard">
+    <div class="card jobcard{edge_cls}{compact_cls}">
       <div class="when">{_e(b['slot'])} — {_e(SERVICE_NAMES.get(b['service'], b['service']))}</div>
       <p><b>{_e(b['name'])}</b> · {_e(b['area'] or b['address'])}</p>
       <p>{status_pill(b['status'])}{cleaner}
       <span class="pill grey">{_e(b['ref'])}</span></p>
-      {notes}{controls}
+      {notes}{controls}{assign}
     </div>"""
+
+
+def _board_calendar(selected, shown):
+    """Month calendar for the owner board — the same markup and classes
+    as the /book calendar, but every day is tappable and the months page
+    freely (no booking-window limit)."""
+    def shift(d, n):
+        y, m = d.year, d.month + n
+        while m < 1:
+            y, m = y - 1, m + 12
+        while m > 12:
+            y, m = y + 1, m - 12
+        return date(y, m, 1)
+
+    prev_m, next_m = shift(shown, -1), shift(shown, 1)
+    prev_arrow = (f'<a class="cal-nav" href="/owner?day={selected.isoformat()}'
+                  f'&month={prev_m.strftime("%Y-%m")}">‹</a>')
+    next_arrow = (f'<a class="cal-nav" href="/owner?day={selected.isoformat()}'
+                  f'&month={next_m.strftime("%Y-%m")}">›</a>')
+    month_last = shift(shown, 1) - timedelta(days=1)
+    # Sunday-start grid, padded with the neighbouring months' days.
+    d = shown - timedelta(days=(shown.weekday() + 1) % 7)
+    cells = []
+    while d <= month_last:
+        for _ in range(7):
+            cls = "cal-cell"
+            if d == selected:
+                cls += " sel"
+            if d == date.today():
+                cls += " today"
+            if d.month != shown.month:
+                cls += " off"
+            cells.append(
+                f'<a class="{cls}" href="/owner?day={d.isoformat()}'
+                f'&month={d.strftime("%Y-%m")}">{d.day}</a>')
+            d += timedelta(days=1)
+    dows = "".join(f'<div class="cal-dow">{n}</div>'
+                   for n in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
+    return f"""
+      <div class="cal">
+        <div class="cal-head">{prev_arrow}<span class="cal-title">
+        {shown.strftime("%B %Y")}</span>{next_arrow}</div>
+        <div class="cal-grid">{dows}{"".join(cells)}</div>
+      </div>"""
 
 
 @app.route("/owner")
 @owner_required
 def owner_home():
-    today_iso = date.today().isoformat()
+    today = date.today()
+    today_iso = today.isoformat()
+    try:
+        selected = date.fromisoformat(
+            request.args.get("day", "") or today_iso)
+    except ValueError:
+        selected = today
+    mparam = request.args.get("month", "")
+    try:
+        shown = (date.fromisoformat(mparam + "-01") if mparam
+                 else selected.replace(day=1))
+    except ValueError:
+        shown = selected.replace(day=1)
+    shown = shown.replace(day=1)
     rows = db().execute(
         """SELECT * FROM bookings WHERE day = ? AND status != 'cancelled'
-           ORDER BY slot""", (today_iso,)).fetchall()
+           ORDER BY slot""", (selected.isoformat(),)).fetchall()
     new_quotes = db().execute(
         "SELECT COUNT(*) FROM quotes WHERE status = 'new'").fetchone()[0]
     upcoming = db().execute(
         """SELECT COUNT(*) FROM bookings
            WHERE day > ? AND status NOT IN ('cancelled', 'done')""",
         (today_iso,)).fetchone()[0]
-    cards = "".join(booking_card(b) for b in rows) or \
-        '<div class="card"><p>No cleans on the board today.</p></div>'
+    cards = "".join(booking_card(b, compact=True) for b in rows) or \
+        '<div class="card"><p>No cleans booked for this day.</p></div>'
+    if selected == today:
+        heading = f"Today's board — {pretty_day(today_iso)}"
+        back = ""
+    else:
+        heading = f"Board — {pretty_day(selected.isoformat())}"
+        back = ('<p class="sub" style="margin:0 0 8px">'
+                '<a href="/owner">&larr; Back to today</a></p>')
     body = f"""
     <h1>Owner control room</h1>
     <p class="sub">Signed in as owner · <a href="/logout">Sign out</a></p>
@@ -1106,8 +1241,10 @@ def owner_home():
       <p>Every customer in one place</p>
       <p><a href="/owner/clients">View clients &rarr;</a></p></div>
     </div>
-    <h2>Today's board — {pretty_day(today_iso)}</h2>
-    <div class="grid">{cards}</div>"""
+    <h2>{heading}</h2>
+    {back}{_board_calendar(selected, shown)}
+    <div class="grid board-grid" style="margin-top:14px">{cards}</div>"""
+    body += BOOK_SCROLL_JS
     return page("Owner Control Room", body)
 
 
@@ -1167,6 +1304,42 @@ def owner_booking_action(bid, action):
     return redirect(url_for("owner_bookings"))
 
 
+@app.route("/owner/bookings/<int:bid>/assign", methods=["POST"])
+@owner_required
+def owner_booking_assign(bid):
+    b = db().execute("SELECT * FROM bookings WHERE id = ?", (bid,)).fetchone()
+    if b is None:
+        abort(404)
+    raw = (request.form.get("cleaner_id") or "").strip()
+    row = None
+    if raw == "":
+        cleaner_id = None
+    else:
+        try:
+            cid = int(raw)
+        except ValueError:
+            cid = None
+        if cid is not None:
+            row = db().execute("SELECT * FROM cleaners WHERE id = ?",
+                               (cid,)).fetchone()
+        if row is None:
+            # Unknown cleaner id — ignore the change entirely.
+            return redirect(url_for("owner_bookings"))
+        cleaner_id = row["id"]
+    db().execute("UPDATE bookings SET cleaner_id = ? WHERE id = ?",
+                 (cleaner_id, bid))
+    db().commit()
+    if cleaner_id is not None:
+        flash(f"Booking {b['ref']} assigned to {row['name']}.")
+    else:
+        flash(f"Booking {b['ref']} is now unassigned.")
+    nxt = request.form.get("next") or ""
+    if not (nxt == "/owner" or nxt.startswith("/owner?")
+            or nxt == "/owner/bookings"):
+        nxt = url_for("owner_bookings")
+    return redirect(nxt)
+
+
 @app.route("/owner/quotes")
 @owner_required
 def owner_quotes():
@@ -1196,20 +1369,97 @@ def owner_quotes():
     return page("Quote Requests", body)
 
 
+def _digits(s):
+    return "".join(ch for ch in (s or "") if ch.isdigit())
+
+
+def _client_matches(rows, q):
+    """Rank client-book matches for a search query.
+
+    Name matches rank first (starts-with beats contains), then phone
+    matches on digits only (so 0107, 5550107 and 902-555-0107 all find
+    the same client), then email contains. Rows arrive alphabetical,
+    which breaks ties.
+    """
+    ql = q.lower()
+    qd = _digits(q)
+    scored = []
+    for c in rows:
+        name = (c["name"] or "").lower()
+        rank = None
+        if name.startswith(ql):
+            rank = 0
+        elif ql in name:
+            rank = 1
+        if len(qd) >= 3 and qd in _digits(c["phone"]):
+            rank = 1 if rank is None else min(rank, 1)
+        if rank is None and ql in (c["email"] or "").lower():
+            rank = 2
+        if rank is not None:
+            scored.append((rank, c))
+    scored.sort(key=lambda t: t[0])
+    return [c for _rank, c in scored]
+
+
+def _client_card(c, expanded=False):
+    lines = []
+    if c["phone"]:
+        lines.append(
+            f'<p>📞 <a href="tel:{_e(c["phone"])}">{_e(c["phone"])}</a></p>')
+    if c["email"]:
+        lines.append(f"<p>✉️ {_e(c['email'])}</p>")
+    if c["area"]:
+        lines.append(f"<p><b>Area:</b> {_e(c['area'])}</p>")
+    if c["address"]:
+        lines.append(f"<p><b>Address:</b> {_e(c['address'])}</p>")
+    if c["notes"]:
+        lines.append(f"<p><b>Notes:</b> {_e(c['notes'])}</p>")
+    open_attr = " open" if expanded else ""
+    return f"""
+    <details class="card client-card"{open_attr}>
+      <summary><span class="client-name">{_e(c['name'])}</span>
+      <span class="client-phone">{_e(c['phone'])}</span></summary>
+      <div class="client-detail">{"".join(lines)}</div>
+    </details>"""
+
+
 @app.route("/owner/clients")
 @owner_required
 def owner_clients():
     rows = db().execute("SELECT * FROM clients ORDER BY name").fetchall()
-    trs = "".join(
-        f"""<tr><td><b>{_e(c['name'])}</b></td><td>{_e(c['phone'])}<br>{_e(c['email'])}</td>
-        <td>{_e(c['area'])}<br>{_e(c['address'])}</td><td>{_e(c['notes'])}</td></tr>"""
-        for c in rows)
+    q = (request.args.get("q") or "").strip()
+    result_line = ""
+    if q:
+        shown = _client_matches(rows, q)
+        if shown:
+            noun = "client matches" if len(shown) == 1 else "clients match"
+            cards = "".join(
+                _client_card(c, expanded=(i == 0))
+                for i, c in enumerate(shown))
+            result_line = f"""
+    <p class="sub" style="margin-top:12px">{len(shown)} {noun}
+    &ldquo;{_e(q)}&rdquo; · <a href="/owner/clients">Show all clients</a></p>{cards}"""
+        else:
+            result_line = f"""
+    <div class="card" style="margin-top:12px">
+      <p><b>No client matches that yet.</b></p>
+      <p><a href="/owner/clients">Show all clients</a></p>
+    </div>"""
+    else:
+        shown = rows
+        result_line = "".join(_client_card(c) for c in shown)
     body = f"""
     <h1>Client book</h1>
     <p class="sub"><a href="/owner">&larr; Control room</a> · Everyone who has
     booked or asked for a quote, in one place.</p>
-    <table><tr><th>Client</th><th>Contact</th><th>Area / Address</th>
-    <th>Notes</th></tr>{trs}</table>"""
+    <form class="client-search" method="get" action="/owner/clients">
+      <label for="client-q">Search by name or phone number</label>
+      <div class="client-search-row">
+        <input type="search" id="client-q" name="q" value="{_e(q)}"
+          placeholder="e.g. Denise or 0107">
+        <button class="btn small" type="submit">Search</button>
+      </div>
+    </form>{result_line}"""
     return page("Clients", body)
 
 
@@ -1256,8 +1506,10 @@ def cleaner_day(cid):
         phone = (f'<p>📞 <a href="tel:{_e(b["phone"])}">{_e(b["phone"])}</a>'
                  f' (tap to call)</p>') if b["phone"] else ""
         notes = f'<p>📝 {_e(b["notes"])}</p>' if b["notes"] else ""
+        edge = EDGE_CLASS.get(b["status"])
+        edge_cls = f" {edge}" if edge else ""
         cards.append(f"""
-        <div class="card jobcard">
+        <div class="card jobcard{edge_cls}">
           <div class="when">{_e(b['slot'])} — {_e(SERVICE_NAMES.get(b['service'], b['service']))}</div>
           <p><b>{_e(b['name'])}</b></p>
           <p>🏠 {_e(b['address'] or b['area'])}</p>
