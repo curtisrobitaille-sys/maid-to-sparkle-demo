@@ -347,13 +347,25 @@ border-radius:8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .jobcard.compact p{margin:3px 0;font-size:14px;line-height:1.45}
 .jobcard.compact .pill{font-size:11px;padding:2px 8px}
 .jobcard.compact .tl{width:9px;height:9px;margin-right:5px}
-.jobcard.compact .assign-form{margin-top:7px;gap:6px}
-.jobcard.compact .assign-form select{padding:6px 8px;font-size:13.5px}
 .jobcard.compact .btn.small{padding:6px 11px;font-size:13px}
-.assign-form{display:flex;gap:8px;align-items:center;margin-top:10px}
-.assign-form select{flex:1 1 auto;width:auto;min-width:0;padding:8px 10px;
-font-size:14.5px}
-.assign-form .btn{flex:0 0 auto}
+.assign-corner{position:absolute;top:12px;right:14px;margin:0}
+.assign-corner select{width:118px;padding:5px 8px;font-size:13px;
+border:1.5px solid var(--line);border-radius:9px;background:#fff;
+color:var(--ink)}
+.jobcard.has-picker .when{padding-right:126px}
+.jobcard.has-picker .client-line{padding-right:126px}
+.tile-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:760px){.tile-grid{grid-template-columns:repeat(4,1fr)}}
+.tile{display:block;background:var(--card);border:1px solid var(--line);
+border-radius:14px;padding:12px 13px;text-decoration:none;color:var(--ink);
+box-shadow:0 1px 6px rgba(232,67,147,.06)}
+.tile-title{display:block;font-weight:800;font-size:15.5px;
+color:var(--pink-deep);line-height:1.25}
+.tile-line{display:block;font-size:13px;color:var(--mut);line-height:1.35;
+margin-top:2px}
+.tile-cue{display:block;margin-top:5px;font-size:13px;font-weight:700;
+color:var(--pink-dark)}
+.tile.attn{background:#fff6df;border-color:#eec987}
 .client-search{margin:16px 0 4px}
 .client-search label{margin:0 0 6px}
 .client-search-row{display:flex;gap:8px}
@@ -467,7 +479,7 @@ border-radius:10px;padding:10px 14px;cursor:pointer;font-size:14px;background:#f
 @media(max-width:640px){.two{grid-template-columns:1fr}}
 .flash{background:#ffe4ef;border:1px solid #f78fb8;color:#8f1a52;
 border-radius:10px;padding:12px 16px;margin:14px 0;font-weight:600}
-.jobcard{border-left:6px solid var(--pink)}
+.jobcard{border-left:6px solid var(--pink);position:relative}
 .jobcard .when{font-size:20px;font-weight:800}
 footer.site{border-top:1px solid var(--line);color:var(--mut);font-size:12.5px;
 text-align:center;padding:18px 12px 30px;line-height:1.6}
@@ -1109,18 +1121,25 @@ def logout():
 
 
 def booking_card(b, controls="", compact=False):
-    cleaner = ""
+    cleaner_name = ""
     if b["cleaner_id"]:
         row = db().execute("SELECT name FROM cleaners WHERE id = ?",
                            (b["cleaner_id"],)).fetchone()
         if row:
-            cleaner = f' · 👩 {_e(row["name"])}'
-    if not cleaner:
+            cleaner_name = row["name"]
+    active = b["status"] not in ("done", "cancelled")
+    if active:
+        # The corner picker IS the assignee display on active cards.
+        cleaner = ""
+    elif cleaner_name:
+        cleaner = f' · 👩 {_e(cleaner_name)}'
+    else:
         cleaner = ' · <span class="no-cleaner">No cleaner yet</span>'
     notes = f'<p>📝 {_e(b["notes"])}</p>' if b["notes"] else ""
-    assign = ""
-    if b["status"] not in ("done", "cancelled"):
-        opts = ['<option value="">Unassigned</option>']
+    picker = ""
+    if active:
+        opts = ['<option value=""{}>Cleaner</option>'.format(
+            " selected" if not b["cleaner_id"] else "")]
         for c in db().execute("SELECT * FROM cleaners ORDER BY name"):
             sel = " selected" if c["id"] == b["cleaner_id"] else ""
             opts.append(
@@ -1128,23 +1147,24 @@ def booking_card(b, controls="", compact=False):
         nxt = request.path
         if request.query_string:
             nxt += "?" + request.query_string.decode()
-        assign = f"""
-      <form class="assign-form" method="post"
+        picker = f"""
+      <form class="assign-corner" method="post"
         action="/owner/bookings/{b['id']}/assign">
         <input type="hidden" name="next" value="{_e(nxt)}">
-        <select name="cleaner_id">{"".join(opts)}</select>
-        <button class="btn small" type="submit">Assign</button>
+        <select name="cleaner_id" aria-label="Assign a cleaner"
+          onchange="this.form.submit()">{"".join(opts)}</select>
       </form>"""
     edge = EDGE_CLASS.get(b["status"])
     edge_cls = f" {edge}" if edge else ""
     compact_cls = " compact" if compact else ""
+    picker_cls = " has-picker" if active else ""
     return f"""
-    <div class="card jobcard{edge_cls}{compact_cls}">
+    <div class="card jobcard{edge_cls}{compact_cls}{picker_cls}">{picker}
       <div class="when">{_e(b['slot'])} — {_e(SERVICE_NAMES.get(b['service'], b['service']))}</div>
-      <p><b>{_e(b['name'])}</b> · {_e(b['area'] or b['address'])}</p>
+      <p class="client-line"><b>{_e(b['name'])}</b> · {_e(b['area'] or b['address'])}</p>
       <p>{status_pill(b['status'])}{cleaner}
       <span class="pill grey">{_e(b['ref'])}</span></p>
-      {notes}{controls}{assign}
+      {notes}{controls}
     </div>"""
 
 
@@ -1218,6 +1238,11 @@ def owner_home():
         """SELECT COUNT(*) FROM bookings
            WHERE day > ? AND status NOT IN ('cancelled', 'done')""",
         (today_iso,)).fetchone()[0]
+    unassigned = db().execute(
+        """SELECT COUNT(*) FROM bookings
+           WHERE cleaner_id IS NULL AND day >= ?
+             AND status NOT IN ('done', 'cancelled')""",
+        (today_iso,)).fetchone()[0]
     cards = "".join(booking_card(b, compact=True) for b in rows) or \
         '<div class="card"><p>No cleans booked for this day.</p></div>'
     if selected == today:
@@ -1227,19 +1252,35 @@ def owner_home():
         heading = f"Board — {pretty_day(selected.isoformat())}"
         back = ('<p class="sub" style="margin:0 0 8px">'
                 '<a href="/owner">&larr; Back to today</a></p>')
+    if unassigned:
+        job_word = "job" if unassigned == 1 else "jobs"
+        unassigned_tile = f"""
+      <a class="tile attn" href="/owner/bookings?unassigned=1">
+      <span class="tile-title">🧹 Unassigned</span>
+      <span class="tile-line"><b>{unassigned}</b> {job_word} need a cleaner</span>
+      <span class="tile-cue">View unassigned &rarr;</span></a>"""
+    else:
+        unassigned_tile = """
+      <a class="tile" href="/owner/bookings?unassigned=1">
+      <span class="tile-title">🧹 Unassigned</span>
+      <span class="tile-line">Every job has a cleaner</span>
+      <span class="tile-cue">View unassigned &rarr;</span></a>"""
     body = f"""
     <h1>Owner control room</h1>
     <p class="sub">Signed in as owner · <a href="/logout">Sign out</a></p>
-    <div class="grid">
-      <div class="card"><h3>📩 Quote requests</h3>
-      <p><b>{new_quotes}</b> new waiting</p>
-      <p><a href="/owner/quotes">Open the inbox &rarr;</a></p></div>
-      <div class="card"><h3>🗓️ Coming up</h3>
-      <p><b>{upcoming}</b> future bookings after today</p>
-      <p><a href="/owner/bookings">All bookings &rarr;</a></p></div>
-      <div class="card"><h3>👥 Client book</h3>
-      <p>Every customer in one place</p>
-      <p><a href="/owner/clients">View clients &rarr;</a></p></div>
+    <div class="tile-grid">
+      <a class="tile" href="/owner/quotes">
+      <span class="tile-title">📩 Quote requests</span>
+      <span class="tile-line"><b>{new_quotes}</b> new waiting</span>
+      <span class="tile-cue">Open the inbox &rarr;</span></a>
+      <a class="tile" href="/owner/bookings">
+      <span class="tile-title">🗓️ Coming up</span>
+      <span class="tile-line"><b>{upcoming}</b> future bookings after today</span>
+      <span class="tile-cue">All bookings &rarr;</span></a>
+      <a class="tile" href="/owner/clients">
+      <span class="tile-title">👥 Client book</span>
+      <span class="tile-line">Every customer in one place</span>
+      <span class="tile-cue">View clients &rarr;</span></a>{unassigned_tile}
     </div>
     <h2>{heading}</h2>
     {back}{_board_calendar(selected, shown)}
@@ -1252,9 +1293,17 @@ def owner_home():
 @owner_required
 def owner_bookings():
     today_iso = date.today().isoformat()
-    rows = db().execute(
-        """SELECT * FROM bookings WHERE day >= ?
-           ORDER BY day, slot""", (today_iso,)).fetchall()
+    unassigned_only = request.args.get("unassigned") == "1"
+    if unassigned_only:
+        rows = db().execute(
+            """SELECT * FROM bookings
+               WHERE day >= ? AND cleaner_id IS NULL
+                 AND status NOT IN ('done', 'cancelled')
+               ORDER BY day, slot""", (today_iso,)).fetchall()
+    else:
+        rows = db().execute(
+            """SELECT * FROM bookings WHERE day >= ?
+               ORDER BY day, slot""", (today_iso,)).fetchall()
 
     def controls(b):
         btns = []
@@ -1279,6 +1328,15 @@ def owner_bookings():
             current_day = b["day"]
             cards.append(f'<h2 style="grid-column:1/-1">{pretty_day(current_day)}</h2>')
         cards.append(booking_card(b, controls(b), compact=True))
+    if unassigned_only:
+        job_word = "job" if len(rows) == 1 else "jobs"
+        body = f"""
+    <h1>Unassigned jobs</h1>
+    <p class="sub"><a href="/owner/bookings">&larr; All bookings</a> ·
+    {len(rows)} {job_word} still need a cleaner. Pick a cleaner in the
+    corner of any card to assign it.</p>
+    <div class="grid">{"".join(cards) or '<div class="card"><p>Every job has a cleaner. 🎉</p></div>'}</div>"""
+        return page("Unassigned Jobs", body)
     body = f"""
     <h1>Bookings</h1>
     <p class="sub"><a href="/owner">&larr; Control room</a> · Upcoming and
@@ -1335,7 +1393,8 @@ def owner_booking_assign(bid):
         flash(f"Booking {b['ref']} is now unassigned.")
     nxt = request.form.get("next") or ""
     if not (nxt == "/owner" or nxt.startswith("/owner?")
-            or nxt == "/owner/bookings"):
+            or nxt == "/owner/bookings"
+            or nxt.startswith("/owner/bookings?")):
         nxt = url_for("owner_bookings")
     return redirect(nxt)
 
