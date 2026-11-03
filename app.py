@@ -579,7 +579,24 @@ h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
 .hero{background:var(--card);border:1px solid var(--line);border-radius:16px;
 padding:22px;margin-top:18px;box-shadow:0 2px 12px rgba(232,67,147,.10)}
 .hero h1{margin-top:0}
-.hero-img{width:100%;display:block;border-radius:12px;margin-bottom:18px}
+/* Home only: the banner leaves the hero card and becomes a fixed
+   full-width backdrop pinned under a fixed header. The page content
+   (solid --bg, see body.home>.wrap) scrolls up over it, and the
+   image's bottom edge fades into --bg via the ::after gradient, so
+   where the image ends and the text begins there is no hard line.
+   Other pages keep the normal in-flow header and no backdrop. */
+body.home{--hdr-h:74px;--band-h:clamp(190px,62vw,360px);
+padding-top:var(--hdr-h)}
+body.home header.site{position:fixed;top:0;left:0;right:0;z-index:60}
+.hero-backdrop{position:fixed;top:var(--hdr-h);left:0;right:0;
+height:var(--band-h);z-index:0;
+background:url(/brand/banner.jpg) center 18%/cover no-repeat}
+.hero-backdrop::after{content:"";position:absolute;inset:0;
+background:linear-gradient(to bottom,rgba(255,248,250,0) 46%,
+rgba(255,248,250,.55) 74%,var(--bg) 100%)}
+body.home>.wrap{position:relative;z-index:1;background:var(--bg);
+margin-top:calc(var(--band-h) - 96px)}
+body.home footer.site{position:relative;z-index:1;background:var(--bg)}
 .signin-logo{display:block;width:112px;height:112px;object-fit:cover;
 border-radius:22px;margin:0 auto 6px}
 .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}
@@ -1062,6 +1079,10 @@ def page(title, body, **ctx):
         f'<div class="flash">✦ {_e(m)}</div>' for _c, m in get_flashed_messages(
             with_categories=True))
     cur = request.path
+    home = cur == "/"
+    body_cls = ' class="home"' if home else ""
+    backdrop = ('<div class="hero-backdrop" aria-hidden="true"></div>'
+                if home else "")
 
     def _cur(*paths):
         for p in paths:
@@ -1081,7 +1102,7 @@ def page(title, body, **ctx):
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{_e(title)} — Maid To Sparkle</title><style>{CSS}</style></head>
-<body>
+<body{body_cls}>
 <header class="site"><div class="wrap">
 <img class="brandmark" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
 <div class="brand-stack">
@@ -1089,7 +1110,7 @@ def page(title, body, **ctx):
 <span class="tagline">Halifax &amp; HRM cleaning</span>
 </div>
 {nav}</div></header>
-<div class="wrap">{flashes}{body}</div>
+{backdrop}<div class="wrap">{flashes}{body}</div>
 <footer class="site">Maid To Sparkle — demonstration website.<br>
 Demo built by <b>HalifaxFX</b> · Sample data only — no real bookings are taken here.</footer>
 </body></html>"""
@@ -1154,7 +1175,6 @@ def landing():
         for key, name, desc in SERVICES)
     body = f"""
     <div class="hero">
-      <img class="hero-img" src="/brand/banner.jpg" alt="Maid To Sparkle — Halifax &amp; HRM cleaning">
       <h1>Your home called... it wants a <span style="color:var(--pink)">reset</span>.</h1>
       <p class="sub" style="font-size:18px"><b>✦ Now booking new clients</b>
       &nbsp;·&nbsp; Serving <b>Halifax &amp; HRM</b></p>
@@ -2158,7 +2178,6 @@ def owner_cleaners():
         except sqlite3.IntegrityError:
             flash(f"{name} is already on the team.")
             return redirect(url_for("owner_cleaners"))
-        flash(f"{name} added to the team ✦")
         return redirect(url_for("owner_cleaners"))
     rows = db().execute("SELECT * FROM cleaners ORDER BY name").fetchall()
     cards = []
@@ -2212,7 +2231,6 @@ def owner_cleaner_photo(cid):
             "UPDATE cleaners SET photo = ?, photo_mime = ? WHERE id = ?",
             (data, mime, cid))
         db().commit()
-        flash(f"Photo updated for {c['name']} ✦")
     return redirect(url_for("owner_cleaners"))
 
 
