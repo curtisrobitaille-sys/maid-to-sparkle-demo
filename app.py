@@ -278,6 +278,11 @@ def seed(conn):
 
 
 # ---------------------------------------------------------------- page shell
+BOLT_SVG = ('<svg class="bolt" viewBox="0 0 24 24" fill="currentColor" '
+            'aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.58 0-.57-.32-.38-.66'
+            'l.07-.12C8.48 10.94 10.42 7.54 13 3h1l-1 7h3.5c.49 0 .56.33.47.51'
+            'l-.07.15C14.96 15.36 13 18.72 11 21z"/></svg>')
+
 CSS = """
 :root{--pink:#e84393;--pink-dark:#c2236a;--pink-deep:#9d1c57;
 --rose:#b76e79;--rose-soft:#fbe9ed;--blush:#ffecf3;--blush2:#ffd6e7;
@@ -297,10 +302,20 @@ background:#fff;padding:2px;box-shadow:0 1px 6px rgba(157,28,87,.35)}
 text-decoration:none}
 .logo .spark{color:#ffe066}
 .tagline{color:#ffd6e7;font-size:14px;margin-left:2px}
-nav.main{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
-nav.main a{color:#fff;text-decoration:none;background:rgba(255,255,255,.18);
-padding:8px 14px;border-radius:999px;font-size:14px;font-weight:600}
-nav.main a:hover{background:rgba(255,255,255,.32)}
+.menu{margin-left:auto;position:relative}
+.menu summary{list-style:none;cursor:pointer;color:#fff;font-weight:600;
+font-size:14px;background:rgba(255,255,255,.18);padding:8px 14px;
+border-radius:999px;-webkit-tap-highlight-color:transparent}
+.menu summary::-webkit-details-marker{display:none}
+.menu summary:hover{background:rgba(255,255,255,.32)}
+.menu-list{position:absolute;right:0;top:calc(100% + 10px);background:#fff;
+border-radius:12px;box-shadow:0 10px 30px rgba(157,28,87,.28);min-width:210px;
+padding:6px;z-index:50}
+.menu-list a{display:block;color:var(--ink);text-decoration:none;
+padding:11px 14px;font-size:15px;border-radius:8px}
+.menu-list a:hover{background:var(--blush)}
+.menu-list a.cur{font-weight:800;color:var(--pink-deep)}
+.menu-list a.cur::before{content:"✦ ";color:var(--pink)}
 .wrap{max-width:1020px;margin:0 auto;padding:22px 18px 40px}
 h1{font-size:30px;margin:8px 0 6px;color:var(--pink-deep)}
 h2{font-size:21px;margin:26px 0 10px;color:var(--pink-deep)}
@@ -322,6 +337,17 @@ box-shadow:none}
 .btn.small{padding:8px 14px;font-size:14px;border-radius:8px}
 .btn.red{background:var(--red)}
 .btn.grey{background:#7a5563}
+.btn-book{display:inline-flex;align-items:center;justify-content:center;gap:8px;
+background:linear-gradient(90deg,#ec4899,#a855f7,#4f46e5);color:#fff;
+text-decoration:none;padding:12px 24px;border-radius:999px;font-weight:700;
+font-size:14px;border:0;cursor:pointer;font-family:inherit;line-height:1.2;
+box-shadow:0 0 20px rgba(236,72,153,.4);transition:all .3s ease-out}
+.btn-book:hover{background:linear-gradient(90deg,#f472b6,#c084fc,#6366f1);
+box-shadow:0 0 35px rgba(168,85,247,.7);transform:scale(1.05)}
+.btn-book:active{transform:scale(.95)}
+.btn-book .bolt{width:16px;height:16px;color:#fbcfe8;flex:none;
+transition:transform .3s ease-out}
+.btn-book:hover .bolt{transform:rotate(-12deg) scale(1.2)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
 gap:14px;margin-top:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
@@ -393,6 +419,7 @@ a.cal-cell:hover{border-color:var(--pink)}
 transform:translateX(-50%);width:5px;height:5px;border-radius:50%;
 background:var(--pink)}
 .cal-cell.sel.today::after{background:#fff}
+#times{scroll-margin-top:96px}
 """
 
 
@@ -400,6 +427,22 @@ def page(title, body, **ctx):
     flashes = "".join(
         f'<div class="flash">✦ {_e(m)}</div>' for _c, m in get_flashed_messages(
             with_categories=True))
+    cur = request.path
+
+    def _cur(*paths):
+        for p in paths:
+            if cur == p or (p != "/" and cur.startswith(p + "/")):
+                return ' class="cur"'
+        return ""
+
+    nav = f"""<details class="menu"><summary>Menu ☰</summary>
+<nav class="menu-list">
+<a href="/"{_cur("/")}>Home</a>
+<a href="/book"{_cur("/book", "/booked")}>Book a Clean</a>
+<a href="/quote"{_cur("/quote")}>Get a Quote</a>
+<a href="/owner"{_cur("/owner", "/login")}>Owner</a>
+<a href="/cleaner"{_cur("/cleaner")}>Cleaner View</a>
+</nav></details>"""
     html = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -409,11 +452,7 @@ def page(title, body, **ctx):
 <img class="brandmark" src="/brand/logo.jpg" alt="Maid To Sparkle logo">
 <a class="logo" href="/">Maid <span class="spark">✦</span> To Sparkle</a>
 <span class="tagline">Halifax &amp; HRM cleaning</span>
-<nav class="main">
-<a href="/">Home</a><a href="/book">Book a Clean</a>
-<a href="/quote">Get a Quote</a><a href="/owner">Owner</a>
-<a href="/cleaner">Cleaner View</a>
-</nav></div></header>
+{nav}</div></header>
 <div class="wrap">{flashes}{body}</div>
 <footer class="site">Maid To Sparkle — demonstration website.<br>
 Demo built by <b>HalifaxFX</b> · Sample data only — no real bookings are taken here.</footer>
@@ -456,7 +495,7 @@ def status_pill(status):
 def landing():
     cards = "".join(
         f"""<div class="card"><h3>{name}</h3><p>{desc}</p>
-        <p><a href="/book?service={key}">Book this &rarr;</a> ·
+        <p><a class="btn-book" href="/book?service={key}">{BOLT_SVG}Book this &rarr;</a> ·
         <a href="/quote?service={key}">Get a quote</a></p></div>"""
         for key, name, desc in SERVICES)
     body = f"""
@@ -469,7 +508,7 @@ def landing():
       and small businesses. Book in about a minute, or send a quick quote
       form and we'll confirm the details with you.</p>
       <div class="cta-row">
-        <a class="btn" href="/book">Book a Clean</a>
+        <a class="btn-book" href="/book">{BOLT_SVG}Book Your Clean ✨</a>
         <a class="btn rose" href="/quote">Get a Quote</a>
       </div>
       <p class="sub" style="margin-top:14px">✦ Eco-friendly products by default
@@ -714,7 +753,7 @@ def book():
                     cls += " today"
                 cells.append(
                     f'<a class="{cls}" href="/book?service={preset}'
-                    f'&day={d.isoformat()}">{d.day}</a>')
+                    f'&day={d.isoformat()}#times">{d.day}</a>')
             d += timedelta(days=1)
     dows = "".join(f'<div class="cal-dow">{n}</div>'
                    for n in ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"))
@@ -748,7 +787,7 @@ def book():
       <label>Day</label>
       {calendar_html}
       <input type="hidden" name="day" value="{chosen.isoformat()}">
-      <label>Start time — {pretty_day(chosen.isoformat())}</label>
+      <label id="times">Start time — {pretty_day(chosen.isoformat())}</label>
       <div class="radios">{"".join(slot_radios)}</div>
       <div class="two">
         <div><label>Your name *</label><input type="text" name="name" required></div>
@@ -763,8 +802,8 @@ def book():
       <input type="text" name="address" placeholder="Street address or area landmark">
       <label>Anything we should know?</label>
       <textarea name="notes" placeholder="Entry instructions, pets, priorities…"></textarea>
-      <p style="margin-top:20px"><button class="btn" type="submit">
-      Confirm my booking</button></p>
+      <p style="margin-top:20px"><button class="btn-book" type="submit">
+      {BOLT_SVG}Confirm my booking</button></p>
     </form>"""
     return page("Book a Clean", body)
 
