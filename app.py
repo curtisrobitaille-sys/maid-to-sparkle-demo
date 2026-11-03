@@ -1165,8 +1165,6 @@ def page(title, body, **ctx):
 <a href="/"{_cur("/")}>Home</a>
 <a href="/book"{_cur("/book", "/booked")}>Book a Clean</a>
 <a href="/quote"{_cur("/quote")}>Get a Quote</a>
-<a href="/owner"{_cur("/owner", "/login")}>Owner</a>
-<a href="/cleaner"{_cur("/cleaner")}>Cleaner View</a>
 <a href="/login">Staff login</a>
 </nav></details>"""
     html = f"""<!DOCTYPE html>
