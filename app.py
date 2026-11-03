@@ -581,8 +581,9 @@ padding:2px 8px;margin:6px -8px}
 .avatar{border-radius:50%;object-fit:cover;flex:none;background:var(--blush2)}
 .avatar-init{display:inline-flex;align-items:center;justify-content:center;
 background:linear-gradient(135deg,#f472a5,#c2236a);color:#fff;font-weight:800}
-.pick-grid{display:flex;flex-wrap:wrap;gap:16px 14px;margin-top:18px;
-max-width:580px}
+.pick-grid{display:flex;flex-wrap:wrap;gap:16px 14px;margin:18px auto 0;
+max-width:580px;justify-content:center}
+.pick-note{text-align:center}
 .pick-tile{display:flex;flex-direction:column;align-items:center;gap:6px;
 width:84px;text-decoration:none;color:var(--ink);text-align:center}
 .pick-tile .avatar{width:60px;height:60px;font-size:20px;
@@ -1628,7 +1629,7 @@ def login():
     <div class="card" style="max-width:430px;margin-top:22px">
       <a class="badge-link" href="/cleaner"><img class="login-badge"
         src="/brand/employee-login.jpg" alt="Employee login"></a>
-      <p class="sub" style="margin-top:0">Tap your picture to see
+      <p class="sub pick-note" style="margin-top:0">Tap your picture to see
       <b>only your jobs for today</b> — addresses, notes, and your
       on-the-way buttons.</p>
       <div class="pick-grid">{tiles}</div>
@@ -2431,7 +2432,7 @@ def cleaner_picker():
         f'<span class="pick-name">{_e(c["name"])}</span></a>' for c in rows)
     body = f"""
     <h1>Cleaner day view</h1>
-    <p class="sub">Pick your name to see <b>only your jobs for today</b> —
+    <p class="sub pick-note">Pick your name to see <b>only your jobs for today</b> —
     addresses, notes, and your on-the-way buttons.</p>
     <div class="pick-grid">{tiles}</div>"""
     return page("Cleaner View", body)
